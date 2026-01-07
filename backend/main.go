@@ -33,7 +33,7 @@ func main() {
 		log.Fatal("Failed to connect to database:", err)
 	}
 
-	log.Println("✅ Database connected!")
+	log.Println("Database connected!")
 
 	// Миграции
 	if err := DB.AutoMigrate(
@@ -44,7 +44,7 @@ func main() {
 		log.Fatal("Failed to migrate database:", err)
 	}
 
-	log.Println("✅ Database migrated!")
+	log.Println("Database migrated!")
 
 	// Gin setup
 	gin.SetMode(config.AppConfig.GinMode)
@@ -74,7 +74,7 @@ func main() {
 	})
 
 	// Запуск сервера
-	log.Printf("🚀 Server starting on port %s", config.AppConfig.ServerPort)
+	log.Printf("Server starting on port %s", config.AppConfig.ServerPort)
 	if err := r.Run(":" + config.AppConfig.ServerPort); err != nil {
 		log.Fatal("Failed to start server:", err)
 	}
