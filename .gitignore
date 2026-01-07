@@ -1,0 +1,31 @@
+# Backend
+backend/*.exe
+backend/*.dll
+backend/*.so
+backend/*.dylib
+backend/.env
+backend/tmp/
+backend/uploads/
+
+# Frontend
+frontend/node_modules/
+frontend/build/
+frontend/.DS_Store
+frontend/.env
+frontend/.env.local
+frontend/.env.development.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+EOF
