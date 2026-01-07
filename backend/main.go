@@ -10,7 +10,7 @@ import (
 	"backend/services"
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
-	"github.com/joho/godotenv" // Добавлено для загрузки .env
+	"github.com/joho/godotenv"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
@@ -29,8 +29,12 @@ func initDB() {
 		log.Fatalf("Failed to create uuid-ossp extension: %v", err)
 	}
 
-	// Автомиграции (удалена Chat)
-	if err := services.DB.AutoMigrate(&models.User{}, &models.Conference{}); err != nil {
+	// Автомиграции (убрана Chat - будет через WebSocket)
+	if err := services.DB.AutoMigrate(
+		&models.User{},
+		&models.Conference{},
+		&models.Participant{},
+	); err != nil {
 		log.Fatalf("Failed to migrate database: %v", err)
 	}
 
@@ -50,7 +54,7 @@ func main() {
 	// Настройка CORS (для frontend на localhost:3000)
 	corsConfig := cors.DefaultConfig()
 	corsConfig.AllowOrigins = []string{"http://localhost:3000", "http://127.0.0.1:3000"}
-	corsConfig.AllowMethods = []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"}
+	corsConfig.AllowMethods = []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"}
 	corsConfig.AllowHeaders = []string{"Origin", "Content-Type", "Authorization"}
 	r.Use(cors.New(corsConfig))
 

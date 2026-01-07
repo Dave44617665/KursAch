@@ -7,20 +7,22 @@ import (
 	"gorm.io/gorm"
 )
 
-// Conference модель конференции
 type Conference struct {
-	ID        uuid.UUID `gorm:"type:uuid;primary_key;default:uuid_generate_v4()"` // UUID как primary key
-	HostID    uuid.UUID `gorm:"type:uuid;not null;index"`                         // FK на User.ID с индексом
-	Title     string    `gorm:"not null"`                                         // Название конференции
-	Status    string    `gorm:"default:scheduled"`                                // Status: scheduled/active/ended
-	StartTime time.Time // Время начала
-	EndTime   time.Time // Время окончания
-	CreatedAt time.Time // Время создания
-	UpdatedAt time.Time // Время обновления
+	ID           uuid.UUID      `gorm:"type:uuid;primaryKey" json:"id"`
+	HostID       uuid.UUID      `gorm:"type:uuid;not null" json:"host_id"`
+	Host         User           `gorm:"foreignKey:HostID" json:"host,omitempty"`
+	Title        string         `gorm:"size:200" json:"title"`
+	Status       string         `gorm:"size:20;default:'scheduled'" json:"status"` // scheduled, active, ended
+	StartTime    time.Time      `json:"start_time"`
+	EndTime      *time.Time     `json:"end_time,omitempty"` // ← УКАЗАТЕЛЬ!
+	Participants []Participant  `gorm:"foreignKey:ConferenceID" json:"participants,omitempty"`
+	CreatedAt    time.Time      `json:"created_at"`
+	UpdatedAt    time.Time      `json:"updated_at"`
 }
 
-// BeforeCreate хук для генерации UUID
-func (c *Conference) BeforeCreate(tx *gorm.DB) (err error) {
-	c.ID = uuid.New()
+func (c *Conference) BeforeCreate(tx *gorm.DB) error {
+	if c.ID == uuid.Nil {
+		c.ID = uuid.New()
+	}
 	return nil
 }

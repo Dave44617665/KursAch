@@ -1,4 +1,3 @@
-// routes/routes.go обновленный
 package routes
 
 import (
@@ -9,13 +8,28 @@ import (
 
 // SetupRoutes настраивает все роуты
 func SetupRoutes(r *gin.Engine) {
+	// API группа
+	api := r.Group("/api")
+	
 	// Публичные роуты
-	r.POST("/register", handlers.RegisterHandler)
-	r.POST("/login", handlers.LoginHandler)
-	r.POST("/refresh", handlers.RefreshHandler) // Новый роут для refresh
+	{
+		api.POST("/register", handlers.RegisterHandler)
+		api.POST("/login", handlers.LoginHandler)
+		api.POST("/refresh", handlers.RefreshHandler)
+	}
 
-	// Защищенные роуты (добавьте здесь роуты для конференций, чата и т.д. позже)
-	protected := r.Group("/")
+	// Защищенные роуты
+	protected := api.Group("/")
 	protected.Use(middleware.AuthMiddleware())
-	// Пример: protected.GET("/profile", handlers.GetProfileHandler) // Добавьте handler позже
+	{
+		// Auth
+		protected.GET("/auth/me", handlers.GetMeHandler)
+		
+		// User Profile
+		protected.GET("/users/profile", handlers.GetProfileHandler)
+		protected.PUT("/users/profile", handlers.UpdateProfileHandler)
+		protected.PATCH("/users/password", handlers.ChangePasswordHandler)
+		protected.PATCH("/users/avatar", handlers.UpdateAvatarHandler)
+		protected.DELETE("/users/account", handlers.DeleteAccountHandler)
+	}
 }
