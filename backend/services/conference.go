@@ -11,7 +11,10 @@ import (
 
 // CreateConference создает новую конференцию
 func CreateConference(hostID, title string, startTime time.Time) (*models.Conference, error) {
-	// Начало транзакции
+	if startTime.Before(time.Now()) {
+		return nil, errors.New("start time cannot be in the past")
+	}
+
 	tx := DB.Begin()
 
 	hostUUID, err := uuid.Parse(hostID)

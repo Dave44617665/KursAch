@@ -10,10 +10,9 @@ import (
 type Participant struct {
 	ID            uuid.UUID  `gorm:"type:uuid;primaryKey" json:"id"`
 	ConferenceID  uuid.UUID  `gorm:"type:uuid;not null;index" json:"conference_id"`
-	Conference    *Conference `gorm:"foreignKey:ConferenceID" json:"conference,omitempty"`
 	UserID        uuid.UUID  `gorm:"type:uuid;not null;index" json:"user_id"`
 	User          User       `gorm:"foreignKey:UserID" json:"user"`
-	Role          string     `gorm:"size:20;default:'participant'" json:"role"` // host, admin, participant
+	Role          string     `gorm:"size:20;default:'participant'" json:"role"`
 	IsMuted       bool       `gorm:"default:false" json:"is_muted"`
 	IsVideoOn     bool       `gorm:"default:true" json:"is_video_on"`
 	ScreenSharing bool       `gorm:"default:false" json:"screen_sharing"`

@@ -56,6 +56,7 @@ func main() {
 	corsConfig.AllowOrigins = []string{"http://localhost:3000", "http://127.0.0.1:3000"}
 	corsConfig.AllowMethods = []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"}
 	corsConfig.AllowHeaders = []string{"Origin", "Content-Type", "Authorization"}
+	corsConfig.AllowCredentials = true  // ← ВАЖНО добавить!
 	r.Use(cors.New(corsConfig))
 
 	// Настройка роутов
