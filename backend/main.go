@@ -1,81 +1,64 @@
+// main.go обновленный
 package main
 
 import (
+	"log"
+
 	"backend/config"
 	"backend/models"
 	"backend/routes"
-	"fmt"
-	"log"
-
+	"backend/services"
+	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
+	"github.com/joho/godotenv" // Добавлено для загрузки .env
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
 
-var DB *gorm.DB
+// Инициализация DB
+func initDB() {
+	cfg := config.LoadConfig()
+	var err error
+	services.DB, err = gorm.Open(postgres.Open(cfg.DBDSN), &gorm.Config{})
+	if err != nil {
+		log.Fatalf("Failed to connect to database: %v", err)
+	}
+
+	// Создание расширения для UUID (если не существует)
+	if err := services.DB.Exec("CREATE EXTENSION IF NOT EXISTS \"uuid-ossp\";").Error; err != nil {
+		log.Fatalf("Failed to create uuid-ossp extension: %v", err)
+	}
+
+	// Автомиграции (удалена Chat)
+	if err := services.DB.AutoMigrate(&models.User{}, &models.Conference{}); err != nil {
+		log.Fatalf("Failed to migrate database: %v", err)
+	}
+
+	log.Println("Database connected and migrated successfully")
+}
 
 func main() {
-	// Загрузка конфигурации
-	config.LoadConfig()
-
-	// Подключение к БД
-	dsn := fmt.Sprintf("host=%s user=%s password=%s dbname=%s port=%s sslmode=disable",
-		config.AppConfig.DBHost,
-		config.AppConfig.DBUser,
-		config.AppConfig.DBPassword,
-		config.AppConfig.DBName,
-		config.AppConfig.DBPort,
-	)
-
-	var err error
-	DB, err = gorm.Open(postgres.Open(dsn), &gorm.Config{})
-	if err != nil {
-		log.Fatal("Failed to connect to database:", err)
+	// Загрузка .env файла
+	if err := godotenv.Load(); err != nil {
+		log.Println("No .env file found, using environment variables")
 	}
 
-	log.Println("Database connected!")
+	initDB()
 
-	// Миграции
-	if err := DB.AutoMigrate(
-		&models.User{},
-		&models.Conference{},
-		&models.Chat{},
-	); err != nil {
-		log.Fatal("Failed to migrate database:", err)
-	}
-
-	log.Println("Database migrated!")
-
-	// Gin setup
-	gin.SetMode(config.AppConfig.GinMode)
 	r := gin.Default()
 
-	// CORS Middleware
-	r.Use(func(c *gin.Context) {
-		c.Writer.Header().Set("Access-Control-Allow-Origin", config.AppConfig.AllowedOrigins)
-		c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
-		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
-		c.Writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
+	// Настройка CORS (для frontend на localhost:3000)
+	corsConfig := cors.DefaultConfig()
+	corsConfig.AllowOrigins = []string{"http://localhost:3000", "http://127.0.0.1:3000"}
+	corsConfig.AllowMethods = []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"}
+	corsConfig.AllowHeaders = []string{"Origin", "Content-Type", "Authorization"}
+	r.Use(cors.New(corsConfig))
 
-		if c.Request.Method == "OPTIONS" {
-			c.AbortWithStatus(204)
-			return
-		}
+	// Настройка роутов
+	routes.SetupRoutes(r)
 
-		c.Next()
-	})
-
-	// Setup routes
-	routes.SetupRoutes(r, DB)
-
-	// Test route
-	r.GET("/ping", func(c *gin.Context) {
-		c.JSON(200, gin.H{"message": "pong"})
-	})
-
-	// Запуск сервера
-	log.Printf("Server starting on port %s", config.AppConfig.ServerPort)
-	if err := r.Run(":" + config.AppConfig.ServerPort); err != nil {
-		log.Fatal("Failed to start server:", err)
+	// Запуск сервера на порту 8080
+	if err := r.Run(":8080"); err != nil {
+		log.Fatalf("Failed to run server: %v", err)
 	}
 }

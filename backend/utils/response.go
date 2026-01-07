@@ -2,23 +2,18 @@ package utils
 
 import "github.com/gin-gonic/gin"
 
-type Response struct {
+// APIResponse стандартизированная структура ответа
+type APIResponse struct {
 	Success bool        `json:"success"`
 	Data    interface{} `json:"data,omitempty"`
 	Error   string      `json:"error,omitempty"`
-	Message string      `json:"message,omitempty"`
 }
 
-func SuccessResponse(c *gin.Context, statusCode int, data interface{}) {
-	c.JSON(statusCode, Response{
-		Success: true,
+// SendResponse отправляет стандартизированный ответ
+func SendResponse(c *gin.Context, status int, success bool, data interface{}, errMsg string) {
+	c.JSON(status, APIResponse{
+		Success: success,
 		Data:    data,
-	})
-}
-
-func ErrorResponse(c *gin.Context, statusCode int, message string) {
-	c.JSON(statusCode, Response{
-		Success: false,
-		Error:   message,
+		Error:   errMsg,
 	})
 }
