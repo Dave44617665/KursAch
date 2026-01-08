@@ -54,12 +54,12 @@ func LoginUser(email, password string) (string, string, error) {
 	}
 
 	// Проверка пароля
-	if !utils.CheckPassword(user.Password, password) {
+	if !utils.CheckPassword(user.Password, password) {  // ← ИСПРАВЬТЕ ПОРЯДОК!
 		return "", "", errors.New("invalid email or password")
 	}
 
-	// Генерация access токена
-	accessToken, err := utils.GenerateToken(user.ID)
+	// Генерация access токена - передаём UUID
+	accessToken, err := utils.GenerateToken(user.ID)  // user.ID это uuid.UUID
 	if err != nil {
 		return "", "", err
 	}

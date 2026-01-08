@@ -8,18 +8,20 @@ import (
 	"gorm.io/gorm"
 )
 
-// GetUserByID получает пользователя по ID
+// GetUserByID получает пользователя по ID (строка UUID)
 func GetUserByID(userID string) (*models.User, error) {
 	var user models.User
-	if err := DB.First(&user, "id = ?", userID).Error; err != nil {
+	
+	// userID это строка UUID из JWT
+	if err := DB.Where("id = ?", userID).First(&user).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, errors.New("user not found")
 		}
 		return nil, err
 	}
+	
 	return &user, nil
 }
-
 // UpdateUserProfile обновляет профиль пользователя
 func UpdateUserProfile(userID, nickname, email string) (*models.User, error) {
 	user, err := GetUserByID(userID)

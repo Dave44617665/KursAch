@@ -1,15 +1,14 @@
-// utils/jwt.go обновленный
 package utils
 
 import (
+	"errors"
+	"os"
 	"time"
 
-	"backend/config"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 )
 
-// TokenType тип токена
 type TokenType string
 
 const (
@@ -17,60 +16,91 @@ const (
 	RefreshToken TokenType = "refresh"
 )
 
-// Claims структура для JWT claims
 type Claims struct {
-	UserID uuid.UUID `json:"user_id"`
+	UserID uuid.UUID `json:"user_id"`  // ← Должно быть UUID!
+	Email  string    `json:"email"`
 	Type   TokenType `json:"type"`
 	jwt.RegisteredClaims
 }
 
-// GenerateToken генерирует access JWT токен
+// GenerateToken генерирует access токен
 func GenerateToken(userID uuid.UUID) (string, error) {
-	cfg := config.LoadConfig()
-	claims := &Claims{
+	jwtSecret := os.Getenv("JWT_SECRET")
+	if jwtSecret == "" {
+		return "", errors.New("JWT_SECRET not set")
+	}
+
+	expiryStr := os.Getenv("JWT_EXPIRES_IN")
+	if expiryStr == "" {
+		expiryStr = "24h"
+	}
+
+	expiry, err := time.ParseDuration(expiryStr)
+	if err != nil {
+		return "", err
+	}
+
+	claims := Claims{
 		UserID: userID,
 		Type:   AccessToken,
 		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(time.Now().Add(cfg.JWTExpiresIn)),
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(expiry)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
 		},
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	return token.SignedString([]byte(cfg.JWTSecret))
+	return token.SignedString([]byte(jwtSecret))
 }
 
-// GenerateRefreshToken генерирует refresh JWT токен
+// GenerateRefreshToken генерирует refresh токен
 func GenerateRefreshToken(userID uuid.UUID) (string, error) {
-	cfg := config.LoadConfig()
-	claims := &Claims{
+	jwtSecret := os.Getenv("JWT_SECRET")
+	if jwtSecret == "" {
+		return "", errors.New("JWT_SECRET not set")
+	}
+
+	expiryStr := os.Getenv("REFRESH_TOKEN_EXPIRES_IN")
+	if expiryStr == "" {
+		expiryStr = "168h"
+	}
+
+	expiry, err := time.ParseDuration(expiryStr)
+	if err != nil {
+		return "", err
+	}
+
+	claims := Claims{
 		UserID: userID,
 		Type:   RefreshToken,
 		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(time.Now().Add(cfg.RefreshTokenExpiresIn)),
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(expiry)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
 		},
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	return token.SignedString([]byte(cfg.JWTSecret))
+	return token.SignedString([]byte(jwtSecret))
 }
 
-// ValidateToken валидирует JWT токен и возвращает claims
+// ValidateToken валидирует токен и возвращает claims
 func ValidateToken(tokenString string) (*Claims, error) {
-	cfg := config.LoadConfig()
-	claims := &Claims{}
+	jwtSecret := os.Getenv("JWT_SECRET")
+	if jwtSecret == "" {
+		return nil, errors.New("JWT_SECRET not set")
+	}
 
-	token, err := jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (interface{}, error) {
-		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, jwt.ErrSignatureInvalid
-		}
-		return []byte(cfg.JWTSecret), nil
+	token, err := jwt.ParseWithClaims(tokenString, &Claims{}, func(token *jwt.Token) (interface{}, error) {
+		return []byte(jwtSecret), nil
 	})
 
-	if err != nil || !token.Valid {
+	if err != nil {
 		return nil, err
 	}
 
-	return claims, nil
+	if claims, ok := token.Claims.(*Claims); ok && token.Valid {
+		return claims, nil
+	}
+
+	return nil, errors.New("invalid token")
 }

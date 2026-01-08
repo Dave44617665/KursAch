@@ -1,15 +1,13 @@
-// middleware/auth.go обновленный (проверяет тип access)
 package middleware
 
 import (
+	"backend/utils"
 	"net/http"
 	"strings"
 
-	"backend/utils"
 	"github.com/gin-gonic/gin"
 )
 
-// AuthMiddleware middleware для проверки JWT (только access токен)
 func AuthMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		authHeader := c.GetHeader("Authorization")
@@ -19,28 +17,29 @@ func AuthMiddleware() gin.HandlerFunc {
 			return
 		}
 
+		// Bearer <token>
 		parts := strings.Split(authHeader, " ")
 		if len(parts) != 2 || parts[0] != "Bearer" {
-			utils.SendResponse(c, http.StatusUnauthorized, false, nil, "Invalid authorization header")
+			utils.SendResponse(c, http.StatusUnauthorized, false, nil, "Invalid authorization header format")
 			c.Abort()
 			return
 		}
 
-		claims, err := utils.ValidateToken(parts[1])
+		token := parts[1]
+		
+		// ValidateToken должен вернуть claims с UserID
+		claims, err := utils.ValidateToken(token)
 		if err != nil {
-			utils.SendResponse(c, http.StatusUnauthorized, false, nil, "Invalid token: "+err.Error())
+			utils.SendResponse(c, http.StatusUnauthorized, false, nil, "Invalid or expired token")
 			c.Abort()
 			return
 		}
 
-		if claims.Type != utils.AccessToken {
-			utils.SendResponse(c, http.StatusUnauthorized, false, nil, "Invalid token type")
-			c.Abort()
-			return
-		}
+		// ⚠️ ВАЖНО: Сохраняем user_id в контекст
+		// Убедитесь что имя поля совпадает с тем что в ValidateToken
+		c.Set("user_id", claims.UserID.String())
+		c.Set("email", claims.Email)
 
-		// Сохраняем userID в контексте для дальнейшего использования
-		c.Set("userID", claims.UserID)
 		c.Next()
 	}
 }

@@ -10,7 +10,14 @@ import (
 
 // GetMeHandler - получить информацию о текущем пользователе
 func GetMeHandler(c *gin.Context) {
+	// Получаем user_id из context (middleware должен его поставить)
 	userID := c.GetString("user_id")
+	
+	// DEBUG - добавьте временно
+	if userID == "" {
+		utils.SendResponse(c, http.StatusUnauthorized, false, nil, "User ID not found in context")
+		return
+	}
 
 	user, err := services.GetUserByID(userID)
 	if err != nil {
