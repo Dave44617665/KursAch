@@ -51,18 +51,27 @@ func main() {
 
 	r := gin.Default()
 
-	// Настройка CORS (для frontend на localhost:3000)
-	corsConfig := cors.DefaultConfig()
-	corsConfig.AllowOrigins = []string{"http://localhost:3000", "http://127.0.0.1:3000"}
-	corsConfig.AllowMethods = []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"}
-	corsConfig.AllowHeaders = []string{"Origin", "Content-Type", "Authorization"}
-	corsConfig.AllowCredentials = true  // ← ВАЖНО добавить!
-	r.Use(cors.New(corsConfig))
+	// CORS - разрешаем запросы с вашего локального frontend
+	r.Use(cors.New(cors.Config{
+		AllowOrigins: []string{
+			"http://localhost:3000",
+			"http://127.0.0.1:3000",
+			"http://81.30.105.33:3000",  // Если frontend тоже на VPS
+		},
+		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
+		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization", "Accept"},
+		AllowCredentials: true,
+		MaxAge:           12 * 3600,
+	}))
 
-	// Настройка роутов
 	routes.SetupRoutes(r)
 
-	// Запуск сервера на порту 8080
+	// Добавьте /ping роут ПОСЛЕ SetupRoutes
+	r.GET("/ping", func(c *gin.Context) {
+		c.JSON(200, gin.H{"message": "pong"})
+	})
+
+	log.Println("🚀 Server starting on :8080")
 	if err := r.Run(":8080"); err != nil {
 		log.Fatalf("Failed to run server: %v", err)
 	}
