@@ -103,7 +103,7 @@ const CreateConferenceModal = ({ isOpen, onClose, onCreateConference }) => {
             </button>
             <button
               type="submit"
-              disabled={loading}
+              onClick={handleSubmit}
               className="flex-1 px-4 py-3 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {loading ? 'Creating...' : 'Create'}

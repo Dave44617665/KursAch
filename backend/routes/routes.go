@@ -31,5 +31,20 @@ func SetupRoutes(r *gin.Engine) {
 		protected.PATCH("/users/password", handlers.ChangePasswordHandler)
 		protected.PATCH("/users/avatar", handlers.UpdateAvatarHandler)
 		protected.DELETE("/users/account", handlers.DeleteAccountHandler)
+
+		// Conferences
+		protected.POST("/conferences", handlers.CreateConferenceHandler)
+		protected.GET("/conferences", handlers.GetMyConferencesHandler)
+		protected.GET("/conferences/:id", handlers.GetConferenceHandler)
+		protected.PATCH("/conferences/:id", handlers.UpdateConferenceHandler)
+		protected.DELETE("/conferences/:id", handlers.DeleteConferenceHandler)
+		protected.POST("/conferences/:id/start", handlers.StartConferenceHandler)
+		protected.POST("/conferences/:id/end", handlers.EndConferenceHandler)
+		// conference := protected.Group("/conferences/:id")
+		// {
+		// 		conference.POST("/join", handlers.JoinConferenceHandler)
+		// 		conference.POST("/leave", handlers.LeaveConferenceHandler)
+				
+		// }
 	}
 }

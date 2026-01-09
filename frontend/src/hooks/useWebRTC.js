@@ -42,6 +42,34 @@ export const useWebRTC = (conferenceId) => {
           isVideoOn: true,
           isScreenSharing: false,
         },
+        {
+          id: '5',
+          name: 'Aboba',
+          isMuted: false,
+          isVideoOn: true,
+          isScreenSharing: false,
+        },
+        {
+          id: '6',
+          name: 'Aboba',
+          isMuted: false,
+          isVideoOn: true,
+          isScreenSharing: false,
+        },
+        {
+          id: '7',
+          name: 'Aboba',
+          isMuted: false,
+          isVideoOn: true,
+          isScreenSharing: false,
+        },
+        {
+          id: '8',
+          name: 'A233a',
+          isMuted: false,
+          isVideoOn: true,
+          isScreenSharing: false,
+        }
       ]);
 
       console.log('[STUB] Connected to conference');

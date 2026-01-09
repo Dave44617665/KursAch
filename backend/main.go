@@ -56,7 +56,6 @@ func main() {
 		AllowOrigins: []string{
 			"http://localhost:3000",
 			"http://127.0.0.1:3000",
-			"http://81.30.105.33:3000",  // Если frontend тоже на VPS
 		},
 		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization", "Accept"},
