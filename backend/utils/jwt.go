@@ -17,14 +17,14 @@ const (
 )
 
 type Claims struct {
-	UserID uuid.UUID `json:"user_id"`  // ← Должно быть UUID!
+	UserID uuid.UUID `json:"user_id"` // ← Должно быть UUID!
 	Email  string    `json:"email"`
 	Type   TokenType `json:"type"`
 	jwt.RegisteredClaims
 }
 
 // GenerateToken генерирует access токен
-func GenerateToken(userID uuid.UUID) (string, error) {
+func GenerateToken(userID uuid.UUID, email string) (string, error) {
 	jwtSecret := os.Getenv("JWT_SECRET")
 	if jwtSecret == "" {
 		return "", errors.New("JWT_SECRET not set")
@@ -42,6 +42,7 @@ func GenerateToken(userID uuid.UUID) (string, error) {
 
 	claims := Claims{
 		UserID: userID,
+		Email:  email,
 		Type:   AccessToken,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(expiry)),
@@ -54,7 +55,7 @@ func GenerateToken(userID uuid.UUID) (string, error) {
 }
 
 // GenerateRefreshToken генерирует refresh токен
-func GenerateRefreshToken(userID uuid.UUID) (string, error) {
+func GenerateRefreshToken(userID uuid.UUID, email string) (string, error) {
 	jwtSecret := os.Getenv("JWT_SECRET")
 	if jwtSecret == "" {
 		return "", errors.New("JWT_SECRET not set")
@@ -72,6 +73,7 @@ func GenerateRefreshToken(userID uuid.UUID) (string, error) {
 
 	claims := Claims{
 		UserID: userID,
+		Email:  email,
 		Type:   RefreshToken,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(expiry)),
@@ -103,4 +105,44 @@ func ValidateToken(tokenString string) (*Claims, error) {
 	}
 
 	return nil, errors.New("invalid token")
+}
+
+func GetUserIDFromToken(tokenString string) (string, error) {
+	claims, err := ValidateToken(tokenString)
+	if err != nil {
+		return "", err
+	}
+
+	// Опционально: проверяем тип токена (для access)
+	if claims.Type != AccessToken {
+		return "", errors.New("expected access token")
+	}
+
+	return claims.UserID.String(), nil
+}
+
+func GetClaimsFromToken(tokenString string) (*Claims, error) {
+	return ValidateToken(tokenString)
+}
+
+func ValidateRefreshToken(tokenString string) (*Claims, error) {
+	claims, err := ValidateToken(tokenString)
+	if err != nil {
+		return nil, err
+	}
+
+	if claims.Type != RefreshToken {
+		return nil, errors.New("expected refresh token")
+	}
+
+	return claims, nil
+}
+
+func RefreshAccessToken(refreshTokenString string) (string, error) {
+	claims, err := ValidateRefreshToken(refreshTokenString)
+	if err != nil {
+		return "", err
+	}
+
+	return GenerateToken(claims.UserID, claims.Email)
 }

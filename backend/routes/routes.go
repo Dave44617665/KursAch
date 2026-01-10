@@ -46,5 +46,8 @@ func SetupRoutes(r *gin.Engine) {
 		// 		conference.POST("/leave", handlers.LeaveConferenceHandler)
 				
 		// }
+		protected.POST("/conferences/join/:readable_id", handlers.JoinConferenceByReadableIDHandler)
 	}
+
+	r.GET("/ws/conference/:id", handlers.ConferenceWSHandler)
 }

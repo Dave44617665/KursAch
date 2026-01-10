@@ -1,18 +1,23 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Calendar as CalendarIcon, History } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Plus, Calendar as CalendarIcon, History, LogIn } from 'lucide-react';
 import Navbar from '../components/layout/Navbar';
 import ConferenceCard from '../components/dashboard/ConferenceCard';
 import CreateConferenceModal from '../components/dashboard/CreateConferenceModal';
+import JoinConferenceModal from '../components/dashboard/JoinConferenceModal'; // ← НОВОЕ
 import { conferenceService } from '../services/conferenceService';
 
 const DashboardPage = () => {
+  const navigate = useNavigate();
   const [conferences, setConferences] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [filter, setFilter] = useState('all'); // all, scheduled, active, ended
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [isJoinModalOpen, setIsJoinModalOpen] = useState(false); // ← НОВОЕ
+  const [filter, setFilter] = useState('all');
 
   useEffect(() => {
     loadConferences();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filter]);
 
   const loadConferences = async () => {
@@ -34,6 +39,18 @@ const DashboardPage = () => {
       await loadConferences();
     } catch (error) {
       console.error('Failed to create conference:', error);
+      throw error;
+    }
+  };
+
+  // ← НОВОЕ: Join conference handler
+  const handleJoinConference = async (readableId) => {
+    try {
+      const result = await conferenceService.joinByReadableId(readableId);
+      // Перенаправить на комнату конференции
+      navigate(`/conference/${result.conference.id}`);
+    } catch (error) {
+      console.error('Failed to join conference:', error);
       throw error;
     }
   };
@@ -75,11 +92,20 @@ const DashboardPage = () => {
             
             <div className="flex gap-3">
               <button
-                onClick={() => setIsModalOpen(true)}
+                onClick={() => setIsCreateModalOpen(true)}
                 className="flex items-center gap-2 px-6 py-3 bg-white text-indigo-600 rounded-lg font-medium hover:bg-indigo-50 transition-colors"
               >
                 <Plus className="w-5 h-5" />
                 Create Meeting
+              </button>
+              
+              {/* НОВОЕ: Кнопка Join */}
+              <button
+                onClick={() => setIsJoinModalOpen(true)}
+                className="flex items-center gap-2 px-6 py-3 bg-indigo-700 text-white rounded-lg font-medium hover:bg-indigo-800 transition-colors border-2 border-white border-opacity-30"
+              >
+                <LogIn className="w-5 h-5" />
+                Join
               </button>
             </div>
           </div>
@@ -134,7 +160,7 @@ const DashboardPage = () => {
             <h3 className="text-lg font-medium text-gray-900 mb-1">No meetings yet</h3>
             <p className="text-gray-500 mb-4">Create your first meeting to get started</p>
             <button
-              onClick={() => setIsModalOpen(true)}
+              onClick={() => setIsCreateModalOpen(true)}
               className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 transition-colors"
             >
               <Plus className="w-4 h-4" />
@@ -155,11 +181,18 @@ const DashboardPage = () => {
         )}
       </div>
 
-      {/* Create Conference Modal */}
+      {/* Modals */}
       <CreateConferenceModal
-        isOpen={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
+        isOpen={isCreateModalOpen}
+        onClose={() => setIsCreateModalOpen(false)}
         onCreateConference={handleCreateConference}
+      />
+      
+      {/* НОВОЕ: Join Modal */}
+      <JoinConferenceModal
+        isOpen={isJoinModalOpen}
+        onClose={() => setIsJoinModalOpen(false)}
+        onJoinConference={handleJoinConference}
       />
     </div>
   );

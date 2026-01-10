@@ -6,6 +6,7 @@ import (
 
 	"backend/models"
 	"backend/utils"
+
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
@@ -54,18 +55,18 @@ func LoginUser(email, password string) (string, string, error) {
 	}
 
 	// Проверка пароля
-	if !utils.CheckPassword(user.Password, password) {  // ← ИСПРАВЬТЕ ПОРЯДОК!
+	if !utils.CheckPassword(user.Password, password) { // ← ИСПРАВЬТЕ ПОРЯДОК!
 		return "", "", errors.New("invalid email or password")
 	}
 
 	// Генерация access токена - передаём UUID
-	accessToken, err := utils.GenerateToken(user.ID)  // user.ID это uuid.UUID
+	accessToken, err := utils.GenerateToken(user.ID, user.Email) // user.ID это uuid.UUID
 	if err != nil {
 		return "", "", err
 	}
 
 	// Генерация refresh токена
-	refreshToken, err := utils.GenerateRefreshToken(user.ID)
+	refreshToken, err := utils.GenerateRefreshToken(user.ID, user.Email)
 	if err != nil {
 		return "", "", err
 	}
@@ -85,7 +86,7 @@ func RefreshToken(refreshTokenString string) (string, error) {
 	}
 
 	// Генерация нового access токена
-	newAccessToken, err := utils.GenerateToken(claims.UserID)
+	newAccessToken, err := utils.GenerateToken(claims.UserID, claims.Email)
 	if err != nil {
 		return "", err
 	}

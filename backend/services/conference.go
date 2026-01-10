@@ -11,6 +11,7 @@ import (
 
 // CreateConference создает новую конференцию
 func CreateConference(hostID, title string, startTime time.Time) (*models.Conference, error) {
+	// Проверка что время не в прошлом
 	if startTime.Before(time.Now()) {
 		return nil, errors.New("start time cannot be in the past")
 	}
@@ -22,12 +23,31 @@ func CreateConference(hostID, title string, startTime time.Time) (*models.Confer
 		return nil, errors.New("invalid host ID")
 	}
 
+	// Генерируем уникальный ReadableID
+	var readableID string
+	for {
+		readableID = utils.GenerateReadableID()
+		
+		// Проверяем уникальность
+		var existing models.Conference
+		if err := tx.Where("readable_id = ?", readableID).First(&existing).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				// ID уникален, можно использовать
+				break
+			}
+			tx.Rollback()
+			return nil, err
+		}
+		// Если нашли дубликат - генерируем новый
+	}
+
 	conference := &models.Conference{
-		ID:        uuid.New(),
-		HostID:    hostUUID,
-		Title:     title,
-		Status:    "scheduled",
-		StartTime: startTime,
+		ID:         uuid.New(),
+		ReadableID: readableID, // ← НОВОЕ!
+		HostID:     hostUUID,
+		Title:      title,
+		Status:     "scheduled",
+		StartTime:  startTime,
 	}
 
 	if err := tx.Create(conference).Error; err != nil {
@@ -59,21 +79,17 @@ func CreateConference(hostID, title string, startTime time.Time) (*models.Confer
 	return conference, nil
 }
 
-// GetConferencesByUser получает список конференций пользователя
-func GetConferencesByUser(userID, status string) ([]models.Conference, error) {
-	var conferences []models.Conference
-
-	query := DB.Preload("Host").Preload("Participants.User").Where("host_id = ?", userID)
-
-	if status != "" {
-		query = query.Where("status = ?", status)
-	}
-
-	if err := query.Order("start_time DESC").Find(&conferences).Error; err != nil {
+// GetConferenceByReadableID получает конференцию по ReadableID
+func GetConferenceByReadableID(readableID string) (*models.Conference, error) {
+	var conference models.Conference
+	if err := DB.Preload("Host").Preload("Participants.User").
+		Where("readable_id = ?", readableID).First(&conference).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, errors.New("conference not found")
+		}
 		return nil, err
 	}
-
-	return conferences, nil
+	return &conference, nil
 }
 
 // GetConferenceByID получает конференцию по ID

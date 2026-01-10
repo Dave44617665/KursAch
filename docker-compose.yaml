@@ -26,7 +26,13 @@ services:
         condition: service_healthy
     stdin_open: true
     tty: true
-    
+  
+  # media:
+  #   build: ./rrtc/.
+  #   container_name: media
+  #   depends_on:
+  #     - frontend
+  #     - backend
 
   db:
     container_name: db

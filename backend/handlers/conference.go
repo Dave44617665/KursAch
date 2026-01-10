@@ -162,3 +162,38 @@ func EndConferenceHandler(c *gin.Context) {
 
 	utils.SendResponse(c, http.StatusOK, true, conference, "Conference ended")
 }
+
+// JoinConferenceByReadableIDHandler - присоединиться к конференции по ReadableID (POST /conferences/join/:readable_id)
+func JoinConferenceByReadableIDHandler(c *gin.Context) {
+	userID := c.GetString("user_id")
+	readableID := c.Param("readable_id")
+
+	// Получить конференцию по ReadableID
+	conference, err := services.GetConferenceByReadableID(readableID)
+	if err != nil {
+		if err.Error() == "conference not found" {
+			utils.SendResponse(c, http.StatusNotFound, false, nil, "Conference not found")
+		} else {
+			utils.SendResponse(c, http.StatusInternalServerError, false, nil, err.Error())
+		}
+		return
+	}
+
+	// Проверить что конференция активна
+	if conference.Status != "active" {
+		utils.SendResponse(c, http.StatusBadRequest, false, nil, "Conference is not active yet")
+		return
+	}
+
+	// Присоединиться к конференции
+	participant, err := services.JoinConference(conference.ID.String(), userID)
+	if err != nil {
+		utils.SendResponse(c, http.StatusInternalServerError, false, nil, err.Error())
+		return
+	}
+
+	utils.SendResponse(c, http.StatusOK, true, gin.H{
+		"conference":  conference,
+		"participant": participant,
+	}, "Joined conference successfully")
+}

@@ -64,4 +64,9 @@ export const conferenceService = {
     const response = await api.post(`/conferences/${conferenceId}/leave`);
     return response.data;
   },
+
+  joinByReadableId: async (readableId) => {
+    const response = await api.post(`/conferences/join/${readableId}`);
+    return response.data.data;
+  },
 };
