@@ -5,6 +5,8 @@ import (
 	"time"
 
 	"backend/models"
+	"backend/utils"
+
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
@@ -27,7 +29,7 @@ func CreateConference(hostID, title string, startTime time.Time) (*models.Confer
 	var readableID string
 	for {
 		readableID = utils.GenerateReadableID()
-		
+
 		// Проверяем уникальность
 		var existing models.Conference
 		if err := tx.Where("readable_id = ?", readableID).First(&existing).Error; err != nil {
@@ -92,6 +94,23 @@ func GetConferenceByReadableID(readableID string) (*models.Conference, error) {
 	return &conference, nil
 }
 
+// GetConferencesByUser получает список конференций пользователя
+func GetConferencesByUser(userID, status string) ([]models.Conference, error) {
+	var conferences []models.Conference
+
+	query := DB.Preload("Host").Preload("Participants.User").Where("host_id = ?", userID)
+
+	if status != "" {
+		query = query.Where("status = ?", status)
+	}
+
+	if err := query.Order("start_time DESC").Find(&conferences).Error; err != nil {
+		return nil, err
+	}
+
+	return conferences, nil
+}
+
 // GetConferenceByID получает конференцию по ID
 func GetConferenceByID(conferenceID string) (*models.Conference, error) {
 	var conference models.Conference
@@ -129,7 +148,7 @@ func UpdateConference(conferenceID, userID, title, status string, startTime *tim
 		// Если завершаем - ставим время окончания
 		if status == "ended" && conference.EndTime == nil {
 			now := time.Now()
-			conference.EndTime = &now  // ← ИСПРАВЛЕНО: присваиваем указатель
+			conference.EndTime = &now // ← ИСПРАВЛЕНО: присваиваем указатель
 		}
 	}
 	if startTime != nil {
@@ -198,7 +217,7 @@ func EndConference(conferenceID, userID string) (*models.Conference, error) {
 
 	now := time.Now()
 	conference.Status = "ended"
-	conference.EndTime = &now  // ← ИСПРАВЛЕНО: присваиваем указатель
+	conference.EndTime = &now // ← ИСПРАВЛЕНО: присваиваем указатель
 
 	if err := DB.Save(conference).Error; err != nil {
 		return nil, err
