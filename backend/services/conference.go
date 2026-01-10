@@ -29,7 +29,7 @@ func CreateConference(hostID, title string, startTime time.Time) (*models.Confer
 	var readableID string
 	for {
 		readableID = utils.GenerateReadableID()
-
+		
 		// Проверяем уникальность
 		var existing models.Conference
 		if err := tx.Where("readable_id = ?", readableID).First(&existing).Error; err != nil {

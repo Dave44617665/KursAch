@@ -60,6 +60,12 @@ const ConferenceRoomPage = () => {
     }
   };
 
+  const isValidMeetingID = (id) => {
+  if (!id) return false;
+  // Проверяем что это строка из 10 цифр
+  return /^\d{10}$/.test(id.toString());
+  };
+
   return (
     <div className="h-screen bg-gray-900 flex flex-col relative overflow-hidden">
       {/* НОВОЕ: Кнопка Invite */}
@@ -81,11 +87,12 @@ const ConferenceRoomPage = () => {
           )}
         </button>
         
+        
         {conference?.readable_id && (
           <div className="mt-2 px-4 py-2 bg-black bg-opacity-60 rounded-lg text-center">
             <p className="text-xs text-gray-400">Meeting ID</p>
             <p className="text-lg font-mono font-bold text-white tracking-widest">
-              {conference.readable_id}
+              {isValidMeetingID(conference.readable_id) ? conference.readable_id : "NonValidStr"}
             </p>
           </div>
         )}
