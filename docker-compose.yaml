@@ -1,96 +1,97 @@
-version: '3'
-
+version: "3"
 services:
-  db:
-    container_name: db
-    image: postgres:18
-    hostname: db
-    restart: unless-stopped
-    shm_size: 128mb
-    environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: 74123
-      POSTGRES_DB: conferencedb
-      POSTGRESQL_MAX_PREPARED_TRANSACTIONS: 64
-      POSTGRESQL_SHARED_BUFFERS: 128MB
-    ports:
-      - "8001:5432"
-    volumes:
-      # ДЛЯ POSTGRES 18: монтируем в /var/lib/postgresql вместо /var/lib/postgresql/data
-      - postgres_data:/var/lib/postgresql
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d conferencedb"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-      start_period: 10s
-    networks:
-      - conference_network
+    db:
+        container_name: db
+        image: postgres:18
+        hostname: db
+        restart: unless-stopped
+        shm_size: 128mb
+        environment:
+            POSTGRES_USER: postgres
+            POSTGRES_PASSWORD: 74123
+            POSTGRES_DB: conferencedb
+            POSTGRESQL_MAX_PREPARED_TRANSACTIONS: 64
+            POSTGRESQL_SHARED_BUFFERS: 128MB
+        ports:
+            - "8001:5432"
+        volumes:
+            - postgres_data:/var/lib/postgresql
+        healthcheck:
+            test: ["CMD-SHELL", "pg_isready -U postgres -d conferencedb"]
+            interval: 5s
+            timeout: 5s
+            retries: 5
+            start_period: 10s
+        networks:
+            - conference_network
 
-  go_api:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
-    container_name: go_api
-    environment:
-      DB_HOST: db
-      DB_PORT: 5432
-      DB_USER: postgres
-      DB_PASSWORD: 74123
-      DB_NAME: conferencedb
-      DB_SSLMODE: disable
-      PORT: 8080
-    env_file:
-      - .env.docker
-    ports:
-      - "8080:8080"
-    depends_on:
-      db:
-        condition: service_healthy
-      media:
-        condition: service_started
-    networks:
-      - conference_network
+    media:
+        build:
+            context: ./rrtc
+            dockerfile: Dockerfile
+        container_name: rrtc
+        restart: unless-stopped
+        environment:
+            RUST_LOG: info
+            HOST_IP: 81.30.105.33
+        ports:
+            - "8081:8080" # WebSocket signaling
+            - "5000:5000/udp" # RTP media
+        networks:
+            - conference_network
 
-  media:
-    build:
-      context: ./rrtc
-      dockerfile: Dockerfile
-    container_name: rrtc
-    restart: unless-stopped
-    environment:
-      RUST_LOG: info
-    ports:
-      - "8081:8080"      # WebSocket signaling
-      - "5000:5000/udp"  # RTP media
-    networks:
-      - conference_network
+    go_api:
+        build:
+            context: ./backend
+            dockerfile: Dockerfile
+        container_name: go_api
+        environment:
+            DB_HOST: db
+            DB_PORT: 5432
+            DB_USER: postgres
+            DB_PASSWORD: 74123
+            DB_NAME: conferencedb
+            DB_SSLMODE: disable
+            PORT: 8080
+            RUST_SFU_URL: ws://media:8080
+        env_file:
+            - .env.docker
+        ports:
+            - "8080:8080"
+        depends_on:
+            db:
+                condition: service_healthy
+            media:
+                condition: service_started
+        networks:
+            - conference_network
 
-  # frontend:
-  #   build:
-  #     context: ./frontend
-  #     dockerfile: Dockerfile
-  #   container_name: frontend
-  #   restart: unless-stopped
-  #   environment:
-  #     REACT_APP_API_URL: http://81.30.105.33:8080/api
-  #     REACT_APP_WS_URL: ws://localhost:8081
-  #   ports:
-  #     - "3000:3000"
-  #   volumes:
-  #     - ./frontend:/app
-  #     - /app/node_modules
-  #   depends_on:
-  #     - go_api
-  #   stdin_open: true
-  #   tty: true
-  #   networks:
-  #     - conference_network
+    # frontend:
+    #     build:
+    #         context: ./frontend
+    #         dockerfile: Dockerfile
+    #     container_name: frontend
+    #     restart: unless-stopped
+    #     environment:
+    #         # ВАЖНО: внутри Docker используем имена сервисов
+    #         REACT_APP_API_URL: http://go_api:8080/api
+    #         REACT_APP_WS_URL: ws://go_api:8080
+    #     ports:
+    #         - "3000:3000"
+    #     volumes:
+    #         - ./frontend:/app
+    #         - /app/node_modules
+    #     depends_on:
+    #         - go_api
+    #     stdin_open: true
+    #     tty: true
+    #     networks:
+    #         - conference_network
 
 volumes:
-  postgres_data:
-    driver: local
+    postgres_data:
+        driver: local
 
 networks:
-  conference_network:
-    driver: bridge
+    conference_network:
+        driver: bridge

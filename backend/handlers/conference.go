@@ -197,3 +197,21 @@ func JoinConferenceByReadableIDHandler(c *gin.Context) {
 		"participant": participant,
 	}, "Joined conference successfully")
 }
+
+// LeaveConferenceHandler - покинуть конференцию (POST /conferences/:id/leave)
+func LeaveConferenceHandler(c *gin.Context) {
+	userID := c.GetString("user_id")
+	conferenceID := c.Param("id")
+
+	err := services.LeaveConference(conferenceID, userID)
+	if err != nil {
+		if err.Error() == "conference not found" || err.Error() == "participant not found" {
+			utils.SendResponse(c, http.StatusNotFound, false, nil, err.Error())
+		} else {
+			utils.SendResponse(c, http.StatusInternalServerError, false, nil, err.Error())
+		}
+		return
+	}
+
+	utils.SendResponse(c, http.StatusOK, true, nil, "Left conference successfully")
+}

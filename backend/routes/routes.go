@@ -3,6 +3,7 @@ package routes
 import (
 	"backend/handlers"
 	"backend/middleware"
+
 	"github.com/gin-gonic/gin"
 )
 
@@ -10,7 +11,7 @@ import (
 func SetupRoutes(r *gin.Engine) {
 	// API группа
 	api := r.Group("/api")
-	
+
 	// Публичные роуты
 	{
 		api.POST("/register", handlers.RegisterHandler)
@@ -24,7 +25,7 @@ func SetupRoutes(r *gin.Engine) {
 	{
 		// Auth
 		protected.GET("/auth/me", handlers.GetMeHandler)
-		
+
 		// User Profile
 		protected.GET("/users/profile", handlers.GetProfileHandler)
 		protected.PUT("/users/profile", handlers.UpdateProfileHandler)
@@ -40,12 +41,7 @@ func SetupRoutes(r *gin.Engine) {
 		protected.DELETE("/conferences/:id", handlers.DeleteConferenceHandler)
 		protected.POST("/conferences/:id/start", handlers.StartConferenceHandler)
 		protected.POST("/conferences/:id/end", handlers.EndConferenceHandler)
-		// conference := protected.Group("/conferences/:id")
-		// {
-		// 		conference.POST("/join", handlers.JoinConferenceHandler)
-		// 		conference.POST("/leave", handlers.LeaveConferenceHandler)
-				
-		// }
+		protected.POST("/conferences/:id/leave", handlers.LeaveConferenceHandler)
 		protected.POST("/conferences/join/:readable_id", handlers.JoinConferenceByReadableIDHandler)
 	}
 

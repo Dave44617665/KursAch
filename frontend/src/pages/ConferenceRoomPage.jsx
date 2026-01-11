@@ -5,6 +5,7 @@ import { Share2, Check } from "lucide-react";
 import VideoGrid from "../components/conference/VideoGrid";
 import ControlBar from "../components/conference/ControlBar";
 import ChatPanel from "../components/conference/ChatPanel";
+import DeviceSelector from "../components/conference/DeviceSelector";
 import { useWebRTC } from "../hooks/useWebRTC";
 import { conferenceService } from "../services/conferenceService";
 
@@ -12,19 +13,25 @@ const ConferenceRoomPage = () => {
     const { id } = useParams();
     const navigate = useNavigate();
     const [isChatOpen, setIsChatOpen] = useState(false);
+    const [isSettingsOpen, setIsSettingsOpen] = useState(false);
     const [conference, setConference] = useState(null);
     const [copied, setCopied] = useState(false);
     const [duration, setDuration] = useState("00:00");
 
     const {
         participants,
+        localStream,
         isMuted,
         isVideoOn,
         isScreenSharing,
+        isConnected,
+        messages,
         toggleMute,
         toggleVideo,
         toggleScreenShare,
         leaveCall,
+        switchDevices,
+        sendMessage,
     } = useWebRTC(id);
 
     useEffect(() => {
@@ -87,6 +94,12 @@ const ConferenceRoomPage = () => {
         }
     };
 
+    const handleDeviceChange = (devices) => {
+        if (switchDevices) {
+            switchDevices(devices.audioDeviceId, devices.videoDeviceId);
+        }
+    };
+
     const isValidMeetingID = (id) => {
         if (!id) return false;
         // Проверяем что это строка из 10 цифр
@@ -130,13 +143,32 @@ const ConferenceRoomPage = () => {
 
             {/* Video Grid */}
             <div className="flex-1 relative">
-                <VideoGrid participants={participants} />
+                <VideoGrid
+                    participants={participants}
+                    localStream={localStream}
+                    isScreenSharing={isScreenSharing}
+                    isMuted={isMuted}
+                    isVideoOn={isVideoOn}
+                />
 
                 {/* Chat Panel */}
                 <ChatPanel
                     isOpen={isChatOpen}
                     onClose={() => setIsChatOpen(false)}
+                    messages={messages}
+                    onSendMessage={sendMessage}
+                    myParticipantId={
+                        participants.find((p) => p.stream === null)?.id
+                    }
                 />
+
+                {/* Device Selector Modal */}
+                {isSettingsOpen && (
+                    <DeviceSelector
+                        onSelectDevice={handleDeviceChange}
+                        onClose={() => setIsSettingsOpen(false)}
+                    />
+                )}
             </div>
 
             {/* Control Bar */}
@@ -144,11 +176,13 @@ const ConferenceRoomPage = () => {
                 isMuted={isMuted}
                 isVideoOn={isVideoOn}
                 isScreenSharing={isScreenSharing}
+                isConnected={isConnected}
                 onToggleMute={toggleMute}
                 onToggleVideo={toggleVideo}
                 onToggleScreenShare={toggleScreenShare}
                 onLeaveCall={handleLeaveCall}
                 onToggleChat={() => setIsChatOpen(!isChatOpen)}
+                onSettings={() => setIsSettingsOpen(true)}
                 title={conference?.title}
                 duration={duration}
                 participantCount={

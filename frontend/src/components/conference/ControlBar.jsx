@@ -22,6 +22,8 @@ const ControlBar = ({
     onToggleScreenShare,
     onLeaveCall,
     onToggleChat,
+    onSettings,
+    isConnected,
     title,
     duration,
     participantCount,
@@ -98,7 +100,18 @@ const ControlBar = ({
                                     </button>
 
                                     <button
-                                        onClick={onToggleVideo}
+                                        onClick={() => {
+                                            console.log(
+                                                "[ControlBar] Video button clicked",
+                                                {
+                                                    isConnected,
+                                                    onToggleVideo:
+                                                        !!onToggleVideo,
+                                                },
+                                            );
+                                            onToggleVideo && onToggleVideo();
+                                        }}
+                                        disabled={!isConnected}
                                         className={`p-3 rounded-full transition-colors ${
                                             !isVideoOn
                                                 ? "bg-red-600 hover:bg-red-700"
@@ -118,7 +131,19 @@ const ControlBar = ({
                                     </button>
 
                                     <button
-                                        onClick={onToggleScreenShare}
+                                        onClick={() => {
+                                            console.log(
+                                                "[ControlBar] Screen share button clicked",
+                                                {
+                                                    isConnected,
+                                                    onToggleScreenShare:
+                                                        !!onToggleScreenShare,
+                                                },
+                                            );
+                                            onToggleScreenShare &&
+                                                onToggleScreenShare();
+                                        }}
+                                        disabled={!isConnected}
                                         className={`p-3 rounded-full transition-colors ${
                                             isScreenSharing
                                                 ? "bg-indigo-600 hover:bg-indigo-700"
@@ -138,6 +163,7 @@ const ControlBar = ({
                                     </button>
 
                                     <button
+                                        onClick={onSettings}
                                         className="p-3 rounded-full bg-gray-700 hover:bg-gray-600 transition-colors"
                                         title="Settings"
                                     >
@@ -152,6 +178,14 @@ const ControlBar = ({
                                         <PhoneOff className="w-5 h-5 text-white" />
                                     </button>
                                 </div>
+
+                                {/* Connection Indicator */}
+                                {!isConnected && (
+                                    <div className="flex items-center gap-2 ml-2 text-yellow-400 text-sm">
+                                        <div className="w-2 h-2 bg-yellow-400 rounded-full animate-pulse"></div>
+                                        <span>Connecting...</span>
+                                    </div>
+                                )}
 
                                 {/* Participants count */}
                                 <div className="text-white text-right">

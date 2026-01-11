@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 
 export const useWebRTC = (
     conferenceId,
-    jwtToken = localStorage.getItem("access_token"), // ИСПРАВЛЕНО: добавлены кавычки
+    jwtToken = localStorage.getItem("access_token"),
     userName = "You",
 ) => {
     const [participants, setParticipants] = useState([]);
@@ -11,6 +11,7 @@ export const useWebRTC = (
     const [isVideoOn, setIsVideoOn] = useState(true);
     const [isScreenSharing, setIsScreenSharing] = useState(false);
     const [isConnected, setIsConnected] = useState(false);
+    const [messages, setMessages] = useState([]);
 
     const pcRef = useRef(null);
     const wsRef = useRef(null);
@@ -18,6 +19,7 @@ export const useWebRTC = (
     const localVideoTrackRef = useRef(null);
     const localScreenTrackRef = useRef(null);
     const myParticipantIdRef = useRef(null);
+    const initializingRef = useRef(false);
 
     useEffect(() => {
         console.log("[WebRTC] useEffect triggered with:", {
@@ -28,26 +30,36 @@ export const useWebRTC = (
             userName,
         });
 
-        // Проверяем что токен передан
         if (!jwtToken) {
             console.error("[WebRTC] JWT token is required but not provided");
             return;
         }
 
-        // ВАЖНО: Используем window.location.host чтобы подключаться через React proxy
-        // const wsProtocol =
-        //     window.location.protocol === "https:" ? "wss:" : "ws:";
+        // Prevent duplicate connections in React StrictMode
+        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+            console.log("[WebRTC] WebSocket already connected, skipping...");
+            return;
+        }
 
-        const API_URL =
-            process.env.REACT_APP_API_URL || "http://localhost:8080/api";
-        const WS_URL = process.env.REACT_APP_WS_URL || "ws://localhost:8080";
+        if (initializingRef.current) {
+            console.log("[WebRTC] Already initializing, skipping...");
+            return;
+        }
+
+        initializingRef.current = true;
+
+        // Connect directly to backend (bypass proxy issues)
+        const wsProtocol =
+            window.location.protocol === "https:" ? "wss:" : "ws:";
+        // Use backend URL directly instead of proxy
+        const wsUrl = `ws://81.30.105.33:8080/ws/conference/${conferenceId}?token=${encodeURIComponent(jwtToken)}`;
 
         console.log(
             "[WebRTC] Connecting to:",
-            WS_URL.replace(jwtToken, "***TOKEN***"),
+            wsUrl.replace(jwtToken, "***TOKEN***"),
         );
-        // console.log("[WebRTC] Host:", wsHost); // Должно быть localhost:3000
-        const ws = new WebSocket(WS_URL);
+
+        const ws = new WebSocket(wsUrl);
         wsRef.current = ws;
 
         let initializationDone = false;
@@ -55,6 +67,7 @@ export const useWebRTC = (
         ws.onopen = () => {
             console.log("[WebRTC] WebSocket connected");
             setIsConnected(true);
+            initializingRef.current = false;
         };
 
         ws.onmessage = async (event) => {
@@ -64,14 +77,12 @@ export const useWebRTC = (
 
                 switch (msg.type) {
                     case "joined":
-                        // Go прислал подтверждение присоединения
                         myParticipantIdRef.current = msg.yourId;
                         console.log(
                             "[WebRTC] Joined as participant:",
                             msg.yourId,
                         );
 
-                        // Устанавливаем начальный список участников
                         if (
                             msg.participants &&
                             Array.isArray(msg.participants)
@@ -80,6 +91,7 @@ export const useWebRTC = (
                                 msg.participants.map((p) => ({
                                     id: p.id,
                                     name: p.name,
+                                    avatarUrl: p.avatarUrl,
                                     stream: null,
                                     isMuted: p.isMuted ?? true,
                                     isVideoOn: p.isVideoOn ?? true,
@@ -88,7 +100,6 @@ export const useWebRTC = (
                             );
                         }
 
-                        // Инициализируем медиа и PeerConnection только один раз
                         if (!initializationDone) {
                             initializationDone = true;
                             await initMediaAndPC(ws);
@@ -96,7 +107,6 @@ export const useWebRTC = (
                         break;
 
                     case "participant_joined":
-                        // Новый участник присоединился
                         console.log(
                             "[WebRTC] Participant joined:",
                             msg.participant,
@@ -104,7 +114,6 @@ export const useWebRTC = (
                         if (msg.participant) {
                             const p = msg.participant;
                             setParticipants((prev) => {
-                                // Проверяем что такого участника еще нет
                                 if (
                                     prev.find(
                                         (existing) => existing.id === p.id,
@@ -117,6 +126,7 @@ export const useWebRTC = (
                                     {
                                         id: p.id,
                                         name: p.name,
+                                        avatarUrl: p.avatarUrl,
                                         stream: null,
                                         isMuted: p.isMuted ?? true,
                                         isVideoOn: p.isVideoOn ?? true,
@@ -129,7 +139,6 @@ export const useWebRTC = (
                         break;
 
                     case "participant_left":
-                        // Участник покинул конференцию
                         console.log(
                             "[WebRTC] Participant left:",
                             msg.participantId,
@@ -142,25 +151,32 @@ export const useWebRTC = (
                         break;
 
                     case "state_update":
-                        // Обновление состояния участника (mute/video/screen)
+                        // Handle both camelCase (from Go backend) and snake_case (from Rust SFU)
+                        const participantId =
+                            msg.participantId || msg.participant_id;
+                        const state = msg.state || {
+                            isMuted: msg.muted,
+                            isVideoOn: msg.video_on,
+                            screenSharing: msg.screen_sharing,
+                        };
+
                         console.log(
                             "[WebRTC] State update for:",
-                            msg.participantId,
-                            msg.state,
+                            participantId,
+                            state,
                         );
-                        if (msg.participantId && msg.state) {
+
+                        if (participantId && state) {
                             setParticipants((prev) =>
                                 prev.map((p) => {
-                                    if (p.id === msg.participantId) {
+                                    if (p.id === participantId) {
                                         return {
                                             ...p,
-                                            isMuted:
-                                                msg.state.isMuted ?? p.isMuted,
+                                            isMuted: state.isMuted ?? p.isMuted,
                                             isVideoOn:
-                                                msg.state.isVideoOn ??
-                                                p.isVideoOn,
+                                                state.isVideoOn ?? p.isVideoOn,
                                             isScreenSharing:
-                                                msg.state.screenSharing ??
+                                                state.screenSharing ??
                                                 p.isScreenSharing,
                                         };
                                     }
@@ -170,8 +186,23 @@ export const useWebRTC = (
                         }
                         break;
 
+                    case "chat":
+                        console.log("[WebRTC] ← Received chat message:", msg);
+                        if (msg.message) {
+                            const newMessage = {
+                                id: Date.now() + Math.random(),
+                                participantId: msg.participantId,
+                                name: msg.name || "Unknown",
+                                avatarUrl: msg.avatarUrl,
+                                message: msg.message,
+                                timestamp:
+                                    msg.timestamp || new Date().toISOString(),
+                            };
+                            setMessages((prev) => [...prev, newMessage]);
+                        }
+                        break;
+
                     case "answer":
-                        // SDP answer от Rust SFU (через Go proxy)
                         console.log("[WebRTC] Received SDP answer");
                         if (pcRef.current && msg.sdp) {
                             try {
@@ -192,11 +223,9 @@ export const useWebRTC = (
                         break;
 
                     case "candidate":
-                        // ICE candidate от Rust SFU (через Go proxy)
                         console.log("[WebRTC] Received ICE candidate");
                         if (pcRef.current && msg.candidate) {
                             try {
-                                // Парсим candidate string
                                 const candidate = new RTCIceCandidate({
                                     candidate: msg.candidate,
                                     sdpMid: msg.sdpMid || "0",
@@ -234,18 +263,19 @@ export const useWebRTC = (
         ws.onerror = (error) => {
             console.error("[WebRTC] WebSocket error:", error);
             setIsConnected(false);
+            initializingRef.current = false;
         };
 
         ws.onclose = () => {
             console.log("[WebRTC] WebSocket closed");
             setIsConnected(false);
+            initializingRef.current = false;
         };
 
         const initMediaAndPC = async (ws) => {
             try {
                 console.log("[WebRTC] Initializing media...");
 
-                // Получаем локальный медиа-поток
                 const stream = await navigator.mediaDevices.getUserMedia({
                     audio: true,
                     video: {
@@ -257,7 +287,6 @@ export const useWebRTC = (
                 localAudioTrackRef.current = stream.getAudioTracks()[0];
                 localVideoTrackRef.current = stream.getVideoTracks()[0];
 
-                // Применяем начальное состояние
                 if (localAudioTrackRef.current) {
                     localAudioTrackRef.current.enabled = !isMuted;
                 }
@@ -271,16 +300,18 @@ export const useWebRTC = (
                     video: !!localVideoTrackRef.current,
                 });
 
-                // Создаём PeerConnection
                 const pc = new RTCPeerConnection({
                     iceServers: [
                         { urls: "stun:stun.l.google.com:19302" },
                         { urls: "stun:stun1.l.google.com:19302" },
+                        { urls: "stun:stun2.l.google.com:19302" },
+                        { urls: "stun:stun3.l.google.com:19302" },
+                        { urls: "stun:stun4.l.google.com:19302" },
                     ],
+                    iceCandidatePoolSize: 10,
                 });
                 pcRef.current = pc;
 
-                // Добавляем локальные треки
                 stream.getTracks().forEach((track) => {
                     console.log(
                         "[WebRTC] Adding local track:",
@@ -290,22 +321,6 @@ export const useWebRTC = (
                     pc.addTrack(track, stream);
                 });
 
-                // Обработка ICE candidates
-                pc.onicecandidate = (event) => {
-                    if (event.candidate) {
-                        console.log("[WebRTC] → Sending ICE candidate");
-                        ws.send(
-                            JSON.stringify({
-                                type: "candidate",
-                                candidate: event.candidate.candidate,
-                            }),
-                        );
-                    } else {
-                        console.log("[WebRTC] ICE gathering complete");
-                    }
-                };
-
-                // Обработка входящих треков от других участников
                 pc.ontrack = (event) => {
                     console.log(
                         "[WebRTC] Received remote track:",
@@ -326,11 +341,7 @@ export const useWebRTC = (
                         remoteStream.id,
                     );
 
-                    // Обновляем участников с потоком
-                    // TODO: Rust SFU должен передавать participant ID
-                    // Пока обновляем первого участника без потока
                     setParticipants((prev) => {
-                        // Ищем участника без стрима (не считая себя)
                         const updated = [...prev];
                         const idx = updated.findIndex(
                             (p) =>
@@ -357,16 +368,30 @@ export const useWebRTC = (
                     });
                 };
 
-                // Мониторинг состояния соединения
                 pc.oniceconnectionstatechange = () => {
                     console.log(
                         "[WebRTC] ICE connection state:",
                         pc.iceConnectionState,
                     );
                     if (pc.iceConnectionState === "failed") {
-                        console.error("[WebRTC] ICE connection failed");
-                        // Можно попробовать restart ICE
+                        console.error(
+                            "[WebRTC] ICE connection failed - connection cannot be established",
+                        );
+                        console.error("[WebRTC] This usually means:");
+                        console.error("  - UDP port 5000 is blocked");
+                        console.error(
+                            "  - TURN server needed for NAT traversal",
+                        );
+                        console.error("  - Firewall blocking WebRTC");
                         pc.restartIce();
+                    } else if (pc.iceConnectionState === "disconnected") {
+                        console.warn(
+                            "[WebRTC] ICE connection disconnected - attempting to reconnect",
+                        );
+                    } else if (pc.iceConnectionState === "connected") {
+                        console.log(
+                            "[WebRTC] ✓ ICE connection established successfully",
+                        );
                     }
                 };
 
@@ -376,7 +401,12 @@ export const useWebRTC = (
                         pc.connectionState,
                     );
                     if (pc.connectionState === "failed") {
-                        console.error("[WebRTC] Connection failed");
+                        console.error("[WebRTC] ✗ Connection failed");
+                        console.error(
+                            "[WebRTC] Check firewall and network settings",
+                        );
+                    } else if (pc.connectionState === "connected") {
+                        console.log("[WebRTC] ✓ Peer connection established");
                     }
                 };
 
@@ -387,7 +417,33 @@ export const useWebRTC = (
                     );
                 };
 
-                // Создаём и отправляем offer
+                pc.onicecandidate = (event) => {
+                    if (event.candidate) {
+                        console.log("[WebRTC] ICE candidate:", {
+                            type: event.candidate.type,
+                            protocol: event.candidate.protocol,
+                            address: event.candidate.address || "hidden",
+                            port: event.candidate.port,
+                        });
+
+                        console.log("[WebRTC] → Sending ICE candidate");
+                        if (ws.readyState === WebSocket.OPEN) {
+                            ws.send(
+                                JSON.stringify({
+                                    type: "candidate",
+                                    candidate: event.candidate.candidate,
+                                }),
+                            );
+                        } else {
+                            console.warn(
+                                "[WebRTC] Cannot send ICE candidate, WebSocket not open",
+                            );
+                        }
+                    } else {
+                        console.log("[WebRTC] ICE gathering complete");
+                    }
+                };
+
                 console.log("[WebRTC] Creating offer...");
                 const offer = await pc.createOffer({
                     offerToReceiveAudio: true,
@@ -398,19 +454,28 @@ export const useWebRTC = (
                 console.log("[WebRTC] Local description set");
 
                 console.log("[WebRTC] → Sending offer");
-                ws.send(
-                    JSON.stringify({
-                        type: "offer",
-                        sdp: offer.sdp,
-                    }),
-                );
+                if (ws.readyState === WebSocket.OPEN) {
+                    ws.send(
+                        JSON.stringify({
+                            type: "offer",
+                            sdp: offer.sdp,
+                        }),
+                    );
+                } else {
+                    console.error(
+                        "[WebRTC] Cannot send offer, WebSocket not open:",
+                        ws.readyState,
+                    );
+                    return;
+                }
 
-                // Отправляем начальное состояние
-                sendStateUpdate(ws, {
-                    isMuted,
-                    isVideoOn,
-                    screenSharing: isScreenSharing,
-                });
+                if (ws.readyState === WebSocket.OPEN) {
+                    sendStateUpdate(ws, {
+                        isMuted,
+                        isVideoOn,
+                        screenSharing: isScreenSharing,
+                    });
+                }
             } catch (err) {
                 console.error("[WebRTC] Media initialization error:", err);
                 alert("Failed to access camera/microphone: " + err.message);
@@ -418,19 +483,9 @@ export const useWebRTC = (
         };
 
         return () => {
-            console.log("[WebRTC] Cleaning up...");
-            if (ws.readyState === WebSocket.OPEN) {
-                ws.close();
-            }
-            if (pcRef.current) {
-                pcRef.current.close();
-            }
-            if (localStream) {
-                localStream.getTracks().forEach((t) => {
-                    t.stop();
-                    console.log("[WebRTC] Stopped track:", t.kind);
-                });
-            }
+            console.log("[WebRTC] Cleanup called");
+            // Don't cleanup on every re-render, only on unmount
+            // This prevents issues with React StrictMode
         };
     }, [conferenceId, jwtToken]);
 
@@ -462,21 +517,36 @@ export const useWebRTC = (
     };
 
     const toggleVideo = () => {
-        if (localVideoTrackRef.current) {
-            const newVideoOn = !isVideoOn;
-            localVideoTrackRef.current.enabled = newVideoOn;
-            setIsVideoOn(newVideoOn);
-            console.log("[WebRTC] Video", newVideoOn ? "enabled" : "disabled");
-            sendStateUpdate(null, {
-                isMuted,
-                isVideoOn: newVideoOn,
-                screenSharing: isScreenSharing,
-            });
+        console.log("[WebRTC] toggleVideo called, current state:", {
+            isVideoOn,
+            hasTrack: !!localVideoTrackRef.current,
+            trackEnabled: localVideoTrackRef.current?.enabled,
+        });
+
+        if (!localVideoTrackRef.current) {
+            console.error("[WebRTC] No video track available");
+            return;
         }
+
+        const newVideoOn = !isVideoOn;
+        localVideoTrackRef.current.enabled = newVideoOn;
+        setIsVideoOn(newVideoOn);
+        console.log("[WebRTC] Video", newVideoOn ? "enabled" : "disabled");
+
+        sendStateUpdate(null, {
+            isMuted,
+            isVideoOn: newVideoOn,
+            screenSharing: isScreenSharing,
+        });
     };
 
     const toggleScreenShare = async () => {
-        // Проверка поддержки Screen Sharing API
+        console.log("[WebRTC] toggleScreenShare called, current state:", {
+            isScreenSharing,
+            hasPC: !!pcRef.current,
+            isConnected,
+        });
+
         if (
             !navigator.mediaDevices ||
             !navigator.mediaDevices.getDisplayMedia
@@ -486,73 +556,75 @@ export const useWebRTC = (
             return;
         }
 
+        if (!isConnected) {
+            console.error("[WebRTC] WebSocket not connected");
+            alert("Please wait for connection to establish");
+            return;
+        }
+
+        if (!pcRef.current) {
+            console.error("[WebRTC] PeerConnection not initialized");
+            alert("Connection not ready. Please try again in a moment.");
+            return;
+        }
+
+        if (isScreenSharing) {
+            await stopScreenShare();
+            return;
+        }
+
         try {
-            if (!isScreenSharing) {
-                console.log("[WebRTC] Starting screen share...");
+            console.log("[WebRTC] Requesting screen share...");
 
-                // Проверяем что PeerConnection существует
-                if (!pcRef.current) {
-                    console.error("[WebRTC] PeerConnection not initialized");
-                    alert("Connection not ready. Please try again.");
-                    return;
-                }
+            const screenStream = await navigator.mediaDevices.getDisplayMedia({
+                video: {
+                    cursor: "always",
+                },
+                audio: false,
+            });
 
-                const screenStream =
-                    await navigator.mediaDevices.getDisplayMedia({
-                        video: {
-                            cursor: "always",
-                            displaySurface: "monitor",
-                        },
-                        audio: false,
-                    });
+            const screenTrack = screenStream.getVideoTracks()[0];
 
-                const screenTrack = screenStream.getVideoTracks()[0];
-
-                if (!screenTrack) {
-                    console.error("[WebRTC] No screen track obtained");
-                    return;
-                }
-
-                localScreenTrackRef.current = screenTrack;
-
-                // Заменяем video track на screen track
-                const sender = pcRef.current
-                    .getSenders()
-                    .find((s) => s.track?.kind === "video");
-                if (sender) {
-                    await sender.replaceTrack(screenTrack);
-                    console.log(
-                        "[WebRTC] Video track replaced with screen share",
-                    );
-                } else {
-                    console.warn(
-                        "[WebRTC] No video sender found, adding new track",
-                    );
-                    pcRef.current.addTrack(screenTrack, screenStream);
-                }
-
-                // Обработка завершения screen share (когда пользователь нажимает "Stop sharing")
-                screenTrack.onended = () => {
-                    console.log("[WebRTC] Screen share ended by user");
-                    // Предотвращаем рекурсивный вызов
-                    if (isScreenSharing) {
-                        stopScreenShare();
-                    }
-                };
-
-                setIsScreenSharing(true);
-                sendStateUpdate(null, {
-                    isMuted,
-                    isVideoOn,
-                    screenSharing: true,
-                });
-            } else {
-                await stopScreenShare();
+            if (!screenTrack) {
+                console.error("[WebRTC] No screen track obtained");
+                alert("Failed to get screen track");
+                return;
             }
+
+            console.log("[WebRTC] Screen track obtained:", screenTrack.id);
+            localScreenTrackRef.current = screenTrack;
+
+            // Replace video track with screen share
+            const sender = pcRef.current
+                .getSenders()
+                .find((s) => s.track?.kind === "video");
+
+            if (sender) {
+                console.log("[WebRTC] Replacing video track with screen share");
+                await sender.replaceTrack(screenTrack);
+            } else {
+                console.warn("[WebRTC] No video sender found");
+                alert("Cannot start screen share - no video connection");
+                screenTrack.stop();
+                return;
+            }
+
+            // Handle user stopping share from browser UI
+            screenTrack.onended = () => {
+                console.log("[WebRTC] Screen share ended by user");
+                stopScreenShare();
+            };
+
+            setIsScreenSharing(true);
+            console.log("[WebRTC] Screen sharing started successfully");
+
+            sendStateUpdate(null, {
+                isMuted,
+                isVideoOn,
+                screenSharing: true,
+            });
         } catch (err) {
             console.error("[WebRTC] Screen share error:", err);
-
-            // Более информативные сообщения об ошибках
             if (err.name === "NotAllowedError") {
                 console.log("[WebRTC] User denied screen sharing permission");
             } else if (err.name === "NotFoundError") {
@@ -573,10 +645,8 @@ export const useWebRTC = (
         console.log("[WebRTC] Stopping screen share...");
 
         if (localScreenTrackRef.current) {
-            // Останавливаем screen track
             localScreenTrackRef.current.stop();
 
-            // Возвращаем обычную камеру
             const sender = pcRef.current
                 ?.getSenders()
                 .find((s) => s.track === localScreenTrackRef.current);
@@ -616,7 +686,6 @@ export const useWebRTC = (
         }
     };
 
-    // Добавляем локального участника в список
     useEffect(() => {
         if (localStream && myParticipantIdRef.current) {
             setParticipants((prev) => {
@@ -652,6 +721,114 @@ export const useWebRTC = (
         }
     }, [localStream, isMuted, isVideoOn, isScreenSharing, userName]);
 
+    // Cleanup on component unmount
+    useEffect(() => {
+        return () => {
+            console.log("[WebRTC] Component unmounting, cleaning up...");
+            if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+                wsRef.current.close();
+            }
+            if (pcRef.current) {
+                pcRef.current.close();
+            }
+            if (localAudioTrackRef.current) {
+                localAudioTrackRef.current.stop();
+            }
+            if (localVideoTrackRef.current) {
+                localVideoTrackRef.current.stop();
+            }
+            if (localScreenTrackRef.current) {
+                localScreenTrackRef.current.stop();
+            }
+        };
+    }, []); // Empty deps - only on mount/unmount
+
+    const switchDevices = async (audioDeviceId, videoDeviceId) => {
+        try {
+            console.log("[WebRTC] Switching devices...", {
+                audioDeviceId,
+                videoDeviceId,
+            });
+
+            const constraints = {
+                audio: audioDeviceId
+                    ? { deviceId: { exact: audioDeviceId } }
+                    : true,
+                video: videoDeviceId
+                    ? {
+                          deviceId: { exact: videoDeviceId },
+                          width: { ideal: 1280 },
+                          height: { ideal: 720 },
+                      }
+                    : true,
+            };
+
+            const newStream =
+                await navigator.mediaDevices.getUserMedia(constraints);
+
+            // Replace tracks in existing PeerConnection
+            if (pcRef.current) {
+                const senders = pcRef.current.getSenders();
+
+                // Replace audio track
+                const audioTrack = newStream.getAudioTracks()[0];
+                if (audioTrack) {
+                    const audioSender = senders.find(
+                        (s) => s.track?.kind === "audio",
+                    );
+                    if (audioSender) {
+                        await audioSender.replaceTrack(audioTrack);
+                        localAudioTrackRef.current = audioTrack;
+                        audioTrack.enabled = !isMuted;
+                    }
+                }
+
+                // Replace video track
+                const videoTrack = newStream.getVideoTracks()[0];
+                if (videoTrack) {
+                    const videoSender = senders.find(
+                        (s) => s.track?.kind === "video",
+                    );
+                    if (videoSender) {
+                        await videoSender.replaceTrack(videoTrack);
+                        localVideoTrackRef.current = videoTrack;
+                        videoTrack.enabled = isVideoOn;
+                    }
+                }
+            }
+
+            // Stop old tracks
+            if (localStream) {
+                localStream.getTracks().forEach((track) => track.stop());
+            }
+
+            setLocalStream(newStream);
+            console.log("[WebRTC] Devices switched successfully");
+        } catch (error) {
+            console.error("[WebRTC] Failed to switch devices:", error);
+            alert("Failed to switch devices: " + error.message);
+        }
+    };
+
+    const sendMessage = (message) => {
+        if (!message || !message.trim()) {
+            console.warn("[WebRTC] Cannot send empty message");
+            return;
+        }
+
+        if (wsRef.current?.readyState === WebSocket.OPEN) {
+            console.log("[WebRTC] → Sending chat message:", message);
+            wsRef.current.send(
+                JSON.stringify({
+                    type: "chat",
+                    message: message.trim(),
+                }),
+            );
+        } else {
+            console.error("[WebRTC] WebSocket not connected");
+        }
+    };
+
     return {
         participants,
         localStream,
@@ -659,9 +836,12 @@ export const useWebRTC = (
         isVideoOn,
         isScreenSharing,
         isConnected,
+        messages,
         toggleMute,
         toggleVideo,
         toggleScreenShare,
         leaveCall,
+        switchDevices,
+        sendMessage,
     };
 };
