@@ -38,14 +38,16 @@ export const useWebRTC = (
         // const wsProtocol =
         //     window.location.protocol === "https:" ? "wss:" : "ws:";
 
-        const wsUrl = `ws://localhost:8080/ws/conference/${conferenceId}?token=${encodeURIComponent(jwtToken)}`;
+        const API_URL =
+            process.env.REACT_APP_API_URL || "http://localhost:8080/api";
+        const WS_URL = process.env.REACT_APP_WS_URL || "ws://localhost:8080";
 
         console.log(
             "[WebRTC] Connecting to:",
-            wsUrl.replace(jwtToken, "***TOKEN***"),
+            WS_URL.replace(jwtToken, "***TOKEN***"),
         );
         // console.log("[WebRTC] Host:", wsHost); // Должно быть localhost:3000
-        const ws = new WebSocket(wsUrl);
+        const ws = new WebSocket(WS_URL);
         wsRef.current = ws;
 
         let initializationDone = false;
