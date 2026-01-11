@@ -22,7 +22,7 @@ var (
 	}
 
 	// URL Rust SFU - без пути, т.к. ваш Rust просто слушает на корне
-	rustSignalingURL = "ws://rrtc:8080" // используем имя контейнера из docker-compose
+	rustSignalingURL = "ws://media:8080" // используем имя контейнера из docker-compose
 
 	roomsMu sync.Mutex
 	rooms   = make(map[string]*Room) // conferenceID -> Room

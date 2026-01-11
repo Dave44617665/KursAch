@@ -62,6 +62,7 @@ func main() {
 		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization", "Accept"},
 		AllowCredentials: true,
+		AllowWebSockets:  true,
 		MaxAge:           12 * 3600,
 	}))
 
