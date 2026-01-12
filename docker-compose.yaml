@@ -80,8 +80,8 @@ services:
             LISTEN_ADDRESS: 0.0.0.0
             MAX_PARTICIPANTS: 50
             VERBOSE_LOGGING: "false"
-            # TURN конфигурация
-            TURN_URLS: "turn:81.30.105.33:3478?transport=udp,turn:81.30.105.33:3478?transport=tcp"
+            # TURN конфигурация - используем coturn через docker сеть
+            TURN_URLS: "turn:coturn:3478?transport=udp,turn:coturn:3478?transport=tcp,turn:81.30.105.33:3478?transport=udp,turn:81.30.105.33:3478?transport=tcp"
             TURN_USERNAME: webrtc
             TURN_CREDENTIAL: secure_password_123
         ports:

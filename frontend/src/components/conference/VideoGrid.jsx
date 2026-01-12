@@ -79,10 +79,7 @@ const ParticipantTile = ({
     const isVideoAvailable =
         showScreenShare && participant.screenStream
             ? hasVideoTracks && hasActiveTracks
-            : participant.stream &&
-              participant.isVideoOn &&
-              hasVideoTracks &&
-              hasActiveTracks;
+            : participant.stream && hasVideoTracks && hasActiveTracks;
 
     return (
         <div
@@ -110,16 +107,6 @@ const ParticipantTile = ({
                         )
                     }
                 />
-            ) : participant.isVideoOn ? (
-                <div className="absolute inset-0 bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center">
-                    <div
-                        className={`${isSmall ? "w-1/3 max-w-24" : "w-1/3 max-w-64"} aspect-square bg-white bg-opacity-20 rounded-full flex items-center justify-center`}
-                    >
-                        <User
-                            className={`${isSmall ? "w-1/2" : "w-1/2"} text-white`}
-                        />
-                    </div>
-                </div>
             ) : (
                 <div className="absolute inset-0 bg-gray-800 flex items-center justify-center">
                     <div className="text-center">

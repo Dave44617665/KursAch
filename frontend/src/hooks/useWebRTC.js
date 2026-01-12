@@ -9,7 +9,7 @@ export const useWebRTC = (
     const [localStream, setLocalStream] = useState(null);
     const [localScreenStream, setLocalScreenStream] = useState(null);
     const [isMuted, setIsMuted] = useState(true);
-    const [isVideoOn, setIsVideoOn] = useState(true);
+    const [isVideoOn, setIsVideoOn] = useState(false);
     const [isScreenSharing, setIsScreenSharing] = useState(false);
     const [isConnected, setIsConnected] = useState(false);
     const [messages, setMessages] = useState([]);
@@ -294,7 +294,8 @@ export const useWebRTC = (
                     localAudioTrackRef.current.enabled = !isMuted;
                 }
                 if (localVideoTrackRef.current) {
-                    localVideoTrackRef.current.enabled = isVideoOn;
+                    // Отключаем видео при старте
+                    localVideoTrackRef.current.enabled = false;
                 }
 
                 setLocalStream(stream);
@@ -308,6 +309,15 @@ export const useWebRTC = (
                         { urls: "stun:stun.l.google.com:19302" },
                         { urls: "stun:stun1.l.google.com:19302" },
                         { urls: "stun:stun2.l.google.com:19302" },
+                        // Coturn TURN сервер
+                        {
+                            urls: [
+                                "turn:81.30.105.33:3478?transport=udp",
+                                "turn:81.30.105.33:3478?transport=tcp",
+                            ],
+                            username: "webrtc",
+                            credential: "secure_password_123",
+                        },
                         {
                             urls: "turn:openrelay.metered.ca:80",
                             username: "openrelayproject",

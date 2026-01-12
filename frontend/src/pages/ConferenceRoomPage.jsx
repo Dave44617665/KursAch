@@ -29,6 +29,7 @@ const ConferenceRoomPage = () => {
         messages,
         toggleMute,
         toggleVideo,
+        toggleScreenShare,
         leaveCall,
         switchDevices,
         sendMessage,
@@ -180,6 +181,7 @@ const ConferenceRoomPage = () => {
                 isConnected={isConnected}
                 onToggleMute={toggleMute}
                 onToggleVideo={toggleVideo}
+                onToggleScreenShare={toggleScreenShare}
                 onLeaveCall={handleLeaveCall}
                 onToggleChat={() => setIsChatOpen(!isChatOpen)}
                 onSettings={() => setIsSettingsOpen(true)}
