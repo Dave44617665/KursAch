@@ -25,20 +25,77 @@ services:
         networks:
             - conference_network
 
-    media:
+    nginx:
+        image: nginx:alpine
+        container_name: nginx
+        restart: unless-stopped
+        ports:
+            - "80:80"
+            - "443:443"
+        volumes:
+            - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+            - ./nginx/ssl:/etc/nginx/ssl:ro
+        depends_on:
+            - frontend
+            - go_api
+        networks:
+            - conference_network
+
+    coturn:
+        image: coturn/coturn:latest
+        container_name: coturn
+        restart: unless-stopped
+        ports:
+            - "3478:3478/udp"
+            - "3478:3478/tcp"
+            - "49152-49252:49152-49252/udp"
+        command:
+            - -n
+            - --log-file=stdout
+            - --listening-port=3478
+            - --listening-ip=0.0.0.0
+            - --external-ip=81.30.105.33
+            - --relay-ip=0.0.0.0
+            - --min-port=49152
+            - --max-port=49252
+            - --realm=conference.local
+            - --user=webrtc:secure_password_123
+            - --lt-cred-mech
+            - --fingerprint
+            - --no-multicast-peers
+            - --no-cli
+            - --verbose
+        networks:
+            - conference_network
+
+    rrtc:
         build:
             context: ./rrtc
-            dockerfile: Dockerfile
+            dockerfile: dockerfile
         container_name: rrtc
         restart: unless-stopped
         environment:
             RUST_LOG: info
-            HOST_IP: 81.30.105.33
+            SIGNALING_PORT: 8080
+            LISTEN_ADDRESS: 0.0.0.0
+            MAX_PARTICIPANTS: 50
+            VERBOSE_LOGGING: "false"
+            # TURN конфигурация
+            TURN_URLS: "turn:81.30.105.33:3478?transport=udp,turn:81.30.105.33:3478?transport=tcp"
+            TURN_USERNAME: webrtc
+            TURN_CREDENTIAL: secure_password_123
         ports:
             - "8081:8080" # WebSocket signaling
-            - "5000:5000/udp" # RTP media
+        depends_on:
+            - coturn
         networks:
             - conference_network
+        healthcheck:
+            test: ["CMD", "pgrep", "rrtc"]
+            interval: 30s
+            timeout: 10s
+            retries: 3
+            start_period: 10s
 
     go_api:
         build:
@@ -53,7 +110,7 @@ services:
             DB_NAME: conferencedb
             DB_SSLMODE: disable
             PORT: 8080
-            RUST_SFU_URL: ws://media:8080
+            RUST_SFU_URL: ws://rrtc:8080
         env_file:
             - .env.docker
         ports:
@@ -61,32 +118,31 @@ services:
         depends_on:
             db:
                 condition: service_healthy
-            media:
-                condition: service_started
+            rrtc:
+                condition: service_healthy
         networks:
             - conference_network
 
-    # frontend:
-    #     build:
-    #         context: ./frontend
-    #         dockerfile: Dockerfile
-    #     container_name: frontend
-    #     restart: unless-stopped
-    #     environment:
-    #         # ВАЖНО: внутри Docker используем имена сервисов
-    #         REACT_APP_API_URL: http://go_api:8080/api
-    #         REACT_APP_WS_URL: ws://go_api:8080
-    #     ports:
-    #         - "3000:3000"
-    #     volumes:
-    #         - ./frontend:/app
-    #         - /app/node_modules
-    #     depends_on:
-    #         - go_api
-    #     stdin_open: true
-    #     tty: true
-    #     networks:
-    #         - conference_network
+    frontend:
+        build:
+            context: ./frontend
+            dockerfile: Dockerfile
+        container_name: frontend
+        restart: unless-stopped
+        environment:
+            # API и WebSocket URLs
+            REACT_APP_API_URL: https://81.30.105.33/api
+            REACT_APP_WS_URL: wss://81.30.105.33/ws
+            # ICE серверы для клиента (можно переопределить в коде)
+            REACT_APP_STUN_URL: stun:stun.l.google.com:19302
+            REACT_APP_TURN_URL: turn:81.30.105.33:3478
+        depends_on:
+            - go_api
+            - rrtc
+        stdin_open: true
+        tty: true
+        networks:
+            - conference_network
 
 volumes:
     postgres_data:

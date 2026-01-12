@@ -7,6 +7,7 @@ export const useWebRTC = (
 ) => {
     const [participants, setParticipants] = useState([]);
     const [localStream, setLocalStream] = useState(null);
+    const [localScreenStream, setLocalScreenStream] = useState(null);
     const [isMuted, setIsMuted] = useState(true);
     const [isVideoOn, setIsVideoOn] = useState(true);
     const [isScreenSharing, setIsScreenSharing] = useState(false);
@@ -48,11 +49,13 @@ export const useWebRTC = (
 
         initializingRef.current = true;
 
-        // Connect directly to backend (bypass proxy issues)
+        // Connect using environment variable or relative to current location
         const wsProtocol =
             window.location.protocol === "https:" ? "wss:" : "ws:";
-        // Use backend URL directly instead of proxy
-        const wsUrl = `ws://81.30.105.33:8080/ws/conference/${conferenceId}?token=${encodeURIComponent(jwtToken)}`;
+        const wsBaseUrl =
+            process.env.REACT_APP_WS_URL ||
+            `${wsProtocol}//${window.location.host}/ws`;
+        const wsUrl = `${wsBaseUrl}/conference/${conferenceId}?token=${encodeURIComponent(jwtToken)}`;
 
         console.log(
             "[WebRTC] Connecting to:",
@@ -305,8 +308,21 @@ export const useWebRTC = (
                         { urls: "stun:stun.l.google.com:19302" },
                         { urls: "stun:stun1.l.google.com:19302" },
                         { urls: "stun:stun2.l.google.com:19302" },
-                        { urls: "stun:stun3.l.google.com:19302" },
-                        { urls: "stun:stun4.l.google.com:19302" },
+                        {
+                            urls: "turn:openrelay.metered.ca:80",
+                            username: "openrelayproject",
+                            credential: "openrelayproject",
+                        },
+                        {
+                            urls: "turn:openrelay.metered.ca:443",
+                            username: "openrelayproject",
+                            credential: "openrelayproject",
+                        },
+                        {
+                            urls: "turn:openrelay.metered.ca:443?transport=tcp",
+                            username: "openrelayproject",
+                            credential: "openrelayproject",
+                        },
                     ],
                     iceCandidatePoolSize: 10,
                 });
@@ -323,46 +339,231 @@ export const useWebRTC = (
 
                 pc.ontrack = (event) => {
                     console.log(
-                        "[WebRTC] Received remote track:",
-                        event.track.kind,
-                        event.track.id,
+                        "[WebRTC] ========== RECEIVED REMOTE TRACK ==========",
                     );
-                    const remoteStream = event.streams[0];
-
-                    if (!remoteStream) {
-                        console.warn(
-                            "[WebRTC] No stream associated with track",
-                        );
-                        return;
-                    }
-
+                    console.log("[WebRTC] Track kind:", event.track.kind);
+                    console.log("[WebRTC] Track id:", event.track.id);
+                    console.log("[WebRTC] Track label:", event.track.label);
+                    console.log("[WebRTC] Track enabled:", event.track.enabled);
                     console.log(
-                        "[WebRTC] Remote stream received, id:",
-                        remoteStream.id,
+                        "[WebRTC] Track readyState:",
+                        event.track.readyState,
                     );
+                    console.log(
+                        "[WebRTC] Transceiver mid:",
+                        event.transceiver.mid,
+                    );
+                    console.log(
+                        "[WebRTC] Streams:",
+                        event.streams.length,
+                        event.streams,
+                    );
+
+                    const track = event.track;
+                    const isVideo = track.kind === "video";
+                    const isAudio = track.kind === "audio";
 
                     setParticipants((prev) => {
-                        const updated = [...prev];
-                        const idx = updated.findIndex(
-                            (p) =>
-                                !p.stream &&
-                                p.id !== myParticipantIdRef.current,
+                        console.log(
+                            "[WebRTC] Current participants before update:",
+                            prev.map((p) => ({
+                                id: p.id,
+                                name: p.name,
+                                hasStream: !!p.stream,
+                                audioTracks: p.stream
+                                    ? p.stream.getAudioTracks().length
+                                    : 0,
+                                videoTracks: p.stream
+                                    ? p.stream.getVideoTracks().length
+                                    : 0,
+                            })),
                         );
 
-                        if (idx !== -1) {
-                            updated[idx] = {
-                                ...updated[idx],
-                                stream: remoteStream,
-                            };
-                            console.log(
-                                "[WebRTC] Assigned stream to participant:",
-                                updated[idx].id,
+                        const updated = [...prev];
+
+                        let idx = -1;
+
+                        // Find the right participant based on track type
+                        if (isVideo) {
+                            // For video: find participant without video track yet
+                            idx = updated.findIndex(
+                                (p) =>
+                                    p.id !== myParticipantIdRef.current &&
+                                    (!p.stream ||
+                                        p.stream
+                                            .getVideoTracks()
+                                            .filter(
+                                                (t) => t.readyState === "live",
+                                            ).length === 0),
                             );
-                        } else {
-                            console.warn(
-                                "[WebRTC] No participant found for remote stream",
+
+                            // If all have video, find one with screen sharing flag for second video track
+                            if (idx === -1 && track.kind === "video") {
+                                idx = updated.findIndex(
+                                    (p) =>
+                                        p.id !== myParticipantIdRef.current &&
+                                        p.isScreenSharing &&
+                                        (!p.screenStream ||
+                                            p.screenStream
+                                                .getVideoTracks()
+                                                .filter(
+                                                    (t) =>
+                                                        t.readyState === "live",
+                                                ).length === 0),
+                                );
+                            }
+                        } else if (isAudio) {
+                            // For audio: find participant without audio track yet
+                            idx = updated.findIndex(
+                                (p) =>
+                                    p.id !== myParticipantIdRef.current &&
+                                    (!p.stream ||
+                                        p.stream
+                                            .getAudioTracks()
+                                            .filter(
+                                                (t) => t.readyState === "live",
+                                            ).length === 0),
                             );
                         }
+
+                        // Fallback: just find first remote participant
+                        if (idx === -1) {
+                            idx = updated.findIndex(
+                                (p) => p.id !== myParticipantIdRef.current,
+                            );
+                        }
+
+                        if (idx === -1) {
+                            console.error(
+                                "[WebRTC] ✗ No participant found for remote track!",
+                            );
+                            console.error(
+                                "[WebRTC] Available participants:",
+                                updated.map((p) => ({
+                                    id: p.id,
+                                    name: p.name,
+                                    isLocal:
+                                        p.id === myParticipantIdRef.current,
+                                })),
+                            );
+                            return prev;
+                        }
+
+                        const participant = updated[idx];
+                        console.log(
+                            "[WebRTC] Found participant for track:",
+                            participant.id,
+                            participant.name,
+                        );
+
+                        // Determine if this is the third+ video track (screen share)
+                        // First video track goes to regular stream, second+ goes to screen stream
+                        if (isVideo) {
+                            const existingVideoTracks = participant.stream
+                                ? participant.stream
+                                      .getVideoTracks()
+                                      .filter((t) => t.readyState === "live")
+                                      .length
+                                : 0;
+
+                            if (existingVideoTracks === 0) {
+                                // First video track - regular camera
+                                // Create new stream or clone existing one to avoid mutation
+                                const newStream = participant.stream
+                                    ? new MediaStream([
+                                          ...participant.stream.getTracks(),
+                                          track,
+                                      ])
+                                    : new MediaStream([track]);
+
+                                updated[idx] = {
+                                    ...participant,
+                                    stream: newStream,
+                                };
+                                console.log(
+                                    "[WebRTC] ✓ Assigned camera video track to participant:",
+                                    participant.id,
+                                    participant.name,
+                                );
+                                console.log(
+                                    "[WebRTC] Stream now has:",
+                                    newStream.getAudioTracks().length,
+                                    "audio,",
+                                    newStream.getVideoTracks().length,
+                                    "video tracks",
+                                );
+                                console.log(
+                                    "[WebRTC] Full stream object:",
+                                    newStream,
+                                );
+                            } else {
+                                // Second video track - screen share
+                                const newScreenStream = participant.screenStream
+                                    ? new MediaStream([
+                                          ...participant.screenStream.getTracks(),
+                                          track,
+                                      ])
+                                    : new MediaStream([track]);
+
+                                updated[idx] = {
+                                    ...participant,
+                                    screenStream: newScreenStream,
+                                };
+                                console.log(
+                                    "[WebRTC] ✓ Assigned screen share video track to participant:",
+                                    participant.id,
+                                    participant.name,
+                                );
+                            }
+                        } else if (isAudio) {
+                            // Audio always goes to regular stream
+                            // Create new stream or clone existing one to avoid mutation
+                            const newStream = participant.stream
+                                ? new MediaStream([
+                                      ...participant.stream.getTracks(),
+                                      track,
+                                  ])
+                                : new MediaStream([track]);
+
+                            updated[idx] = {
+                                ...participant,
+                                stream: newStream,
+                            };
+                            console.log(
+                                "[WebRTC] ✓ Assigned audio track to participant:",
+                                participant.id,
+                                participant.name,
+                            );
+                            console.log(
+                                "[WebRTC] Stream now has:",
+                                newStream.getAudioTracks().length,
+                                "audio,",
+                                newStream.getVideoTracks().length,
+                                "video tracks",
+                            );
+                            console.log(
+                                "[WebRTC] Full stream object:",
+                                newStream,
+                            );
+                        }
+
+                        console.log(
+                            "[WebRTC] Participants after update:",
+                            updated.map((p) => ({
+                                id: p.id,
+                                name: p.name,
+                                hasStream: !!p.stream,
+                                audioTracks: p.stream
+                                    ? p.stream.getAudioTracks().length
+                                    : 0,
+                                videoTracks: p.stream
+                                    ? p.stream.getVideoTracks().length
+                                    : 0,
+                            })),
+                        );
+                        console.log(
+                            "[WebRTC] ================================================",
+                        );
 
                         return updated;
                     });
@@ -592,22 +793,20 @@ export const useWebRTC = (
             }
 
             console.log("[WebRTC] Screen track obtained:", screenTrack.id);
+
+            // Label the track as screen share for identification
+            screenTrack.contentHint = "detail";
+
             localScreenTrackRef.current = screenTrack;
+            setLocalScreenStream(screenStream);
 
-            // Replace video track with screen share
-            const sender = pcRef.current
-                .getSenders()
-                .find((s) => s.track?.kind === "video");
+            // Add screen track as additional sender instead of replacing
+            const screenSender = pcRef.current.addTrack(
+                screenTrack,
+                screenStream,
+            );
 
-            if (sender) {
-                console.log("[WebRTC] Replacing video track with screen share");
-                await sender.replaceTrack(screenTrack);
-            } else {
-                console.warn("[WebRTC] No video sender found");
-                alert("Cannot start screen share - no video connection");
-                screenTrack.stop();
-                return;
-            }
+            console.log("[WebRTC] Added screen share track to peer connection");
 
             // Handle user stopping share from browser UI
             screenTrack.onended = () => {
@@ -647,24 +846,24 @@ export const useWebRTC = (
         if (localScreenTrackRef.current) {
             localScreenTrackRef.current.stop();
 
+            // Remove the screen share sender instead of replacing
             const sender = pcRef.current
                 ?.getSenders()
                 .find((s) => s.track === localScreenTrackRef.current);
 
-            if (sender && localVideoTrackRef.current) {
+            if (sender) {
                 try {
-                    await sender.replaceTrack(localVideoTrackRef.current);
-                    console.log(
-                        "[WebRTC] Screen share track replaced back to camera",
-                    );
+                    pcRef.current.removeTrack(sender);
+                    console.log("[WebRTC] Screen share track removed");
                 } catch (err) {
-                    console.error("[WebRTC] Error replacing track:", err);
+                    console.error("[WebRTC] Error removing track:", err);
                 }
             }
 
             localScreenTrackRef.current = null;
         }
 
+        setLocalScreenStream(null);
         setIsScreenSharing(false);
         sendStateUpdate(null, {
             isMuted,
@@ -832,6 +1031,7 @@ export const useWebRTC = (
     return {
         participants,
         localStream,
+        localScreenStream,
         isMuted,
         isVideoOn,
         isScreenSharing,

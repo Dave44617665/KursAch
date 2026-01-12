@@ -21,6 +21,7 @@ const ConferenceRoomPage = () => {
     const {
         participants,
         localStream,
+        localScreenStream,
         isMuted,
         isVideoOn,
         isScreenSharing,
@@ -28,7 +29,6 @@ const ConferenceRoomPage = () => {
         messages,
         toggleMute,
         toggleVideo,
-        toggleScreenShare,
         leaveCall,
         switchDevices,
         sendMessage,
@@ -146,6 +146,7 @@ const ConferenceRoomPage = () => {
                 <VideoGrid
                     participants={participants}
                     localStream={localStream}
+                    localScreenStream={localScreenStream}
                     isScreenSharing={isScreenSharing}
                     isMuted={isMuted}
                     isVideoOn={isVideoOn}
@@ -179,7 +180,6 @@ const ConferenceRoomPage = () => {
                 isConnected={isConnected}
                 onToggleMute={toggleMute}
                 onToggleVideo={toggleVideo}
-                onToggleScreenShare={toggleScreenShare}
                 onLeaveCall={handleLeaveCall}
                 onToggleChat={() => setIsChatOpen(!isChatOpen)}
                 onSettings={() => setIsSettingsOpen(true)}

@@ -1,15 +1,88 @@
 import React from "react";
-import { Mic, MicOff, User } from "lucide-react";
+import { Mic, MicOff, User, Monitor } from "lucide-react";
 
-const ParticipantTile = ({ participant, size = "normal" }) => {
+const ParticipantTile = ({
+    participant,
+    size = "normal",
+    showScreenShare = false,
+}) => {
     const isSmall = size === "small";
     const videoRef = React.useRef(null);
+    const screenRef = React.useRef(null);
 
     React.useEffect(() => {
         if (videoRef.current && participant.stream) {
+            console.log(
+                `[VideoGrid] Setting stream for participant ${participant.name} (${participant.id})`,
+                participant.stream,
+                "Audio tracks:",
+                participant.stream.getAudioTracks().length,
+                "Video tracks:",
+                participant.stream.getVideoTracks().length,
+            );
             videoRef.current.srcObject = participant.stream;
+
+            // Добавляем обработчик для отладки воспроизведения
+            videoRef.current.onloadedmetadata = () => {
+                console.log(
+                    `[VideoGrid] ✓ Video metadata loaded for ${participant.name}`,
+                );
+            };
+            videoRef.current.onplay = () => {
+                console.log(
+                    `[VideoGrid] ✓ Video started playing for ${participant.name}`,
+                );
+            };
+            videoRef.current.onerror = (e) => {
+                console.error(
+                    `[VideoGrid] ✗ Video error for ${participant.name}:`,
+                    e,
+                );
+            };
         }
-    }, [participant.stream]);
+    }, [participant.stream, participant.name, participant.id]);
+
+    React.useEffect(() => {
+        if (screenRef.current && participant.screenStream) {
+            console.log(
+                `[VideoGrid] Setting screen stream for participant ${participant.name} (${participant.id})`,
+                participant.screenStream,
+            );
+            screenRef.current.srcObject = participant.screenStream;
+
+            // Добавляем обработчик для отладки воспроизведения экрана
+            screenRef.current.onloadedmetadata = () => {
+                console.log(
+                    `[VideoGrid] ✓ Screen metadata loaded for ${participant.name}`,
+                );
+            };
+            screenRef.current.onplay = () => {
+                console.log(
+                    `[VideoGrid] ✓ Screen started playing for ${participant.name}`,
+                );
+            };
+        }
+    }, [participant.screenStream, participant.name, participant.id]);
+
+    const streamToShow =
+        showScreenShare && participant.screenStream
+            ? participant.screenStream
+            : participant.stream;
+
+    // Проверяем наличие видео треков в потоке
+    const hasVideoTracks =
+        streamToShow && streamToShow.getVideoTracks().length > 0;
+    const hasActiveTracks =
+        streamToShow &&
+        streamToShow.getTracks().some((t) => t.readyState === "live");
+
+    const isVideoAvailable =
+        showScreenShare && participant.screenStream
+            ? hasVideoTracks && hasActiveTracks
+            : participant.stream &&
+              participant.isVideoOn &&
+              hasVideoTracks &&
+              hasActiveTracks;
 
     return (
         <div
@@ -20,13 +93,22 @@ const ParticipantTile = ({ participant, size = "normal" }) => {
       `}
         >
             {/* Video element */}
-            {participant.stream && participant.isVideoOn ? (
+            {isVideoAvailable ? (
                 <video
-                    ref={videoRef}
+                    ref={
+                        showScreenShare && participant.screenStream
+                            ? screenRef
+                            : videoRef
+                    }
                     autoPlay
                     playsInline
-                    muted={participant.isOwn}
+                    muted={participant.isOwn || false}
                     className="absolute inset-0 w-full h-full object-cover"
+                    onCanPlay={() =>
+                        console.log(
+                            `[VideoGrid] Video can play for ${participant.name}`,
+                        )
+                    }
                 />
             ) : participant.isVideoOn ? (
                 <div className="absolute inset-0 bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center">
@@ -76,9 +158,10 @@ const ParticipantTile = ({ participant, size = "normal" }) => {
             </div>
 
             {/* Screen sharing indicator */}
-            {participant.isScreenSharing && (
-                <div className="absolute top-3 right-3 bg-indigo-600 px-3 py-1.5 rounded text-sm text-white font-medium">
-                    Presenting
+            {showScreenShare && participant.isScreenSharing && (
+                <div className="absolute top-3 right-3 bg-indigo-600 px-3 py-1.5 rounded text-sm text-white font-medium flex items-center gap-1">
+                    <Monitor className="w-4 h-4" />
+                    Screen
                 </div>
             )}
         </div>
@@ -88,6 +171,7 @@ const ParticipantTile = ({ participant, size = "normal" }) => {
 const VideoGrid = ({
     participants,
     localStream,
+    localScreenStream,
     isScreenSharing,
     isMuted,
     isVideoOn,
@@ -103,6 +187,7 @@ const VideoGrid = ({
                     id: "local",
                     name: "You",
                     stream: localStream,
+                    screenStream: localScreenStream,
                     isMuted: isMuted,
                     isVideoOn: isVideoOn,
                     isScreenSharing: isScreenSharing,
@@ -115,6 +200,7 @@ const VideoGrid = ({
             if (p.stream === localStream) {
                 return {
                     ...p,
+                    screenStream: localScreenStream,
                     isMuted: isMuted,
                     isVideoOn: isVideoOn,
                     isScreenSharing: isScreenSharing,
@@ -131,38 +217,51 @@ const VideoGrid = ({
     const presenting = allParticipants.find((p) => p.isScreenSharing);
     const others = allParticipants.filter((p) => !p.isScreenSharing);
 
-    // Режим презентации
+    // Режим презентации - показываем экран презентующего большим, а веб-камеры всех (включая презентующего) внизу
     if (presenting) {
         return (
             <div className="flex flex-col h-full">
-                {/* Большая плитка презентующего */}
+                {/* Большая плитка с экраном презентующего */}
                 <div className="flex-1 p-6 min-h-0">
                     <div className="h-full max-w-5xl mx-auto">
                         <ParticipantTile
                             participant={presenting}
                             size="normal"
+                            showScreenShare={true}
                         />
                     </div>
                 </div>
 
-                {/* Полоса с остальными участниками */}
-                {others.length > 0 && (
-                    <div className="h-64 bg-gray-950 border-t-2 border-gray-700 overflow-x-auto">
-                        <div className="flex gap-6 p-6 min-w-max items-center">
-                            {others.map((participant) => (
-                                <div
-                                    key={participant.id}
-                                    className="flex-shrink-0 w-80"
-                                >
-                                    <ParticipantTile
-                                        participant={participant}
-                                        size="small"
-                                    />
-                                </div>
-                            ))}
+                {/* Полоса с веб-камерами всех участников (включая презентующего) */}
+                <div className="h-64 bg-gray-950 border-t-2 border-gray-700 overflow-x-auto">
+                    <div className="flex gap-6 p-6 min-w-max items-center">
+                        {/* Сначала показываем веб-камеру презентующего */}
+                        <div className="flex-shrink-0 w-80">
+                            <ParticipantTile
+                                participant={{
+                                    ...presenting,
+                                    screenStream: null,
+                                    isScreenSharing: false,
+                                }}
+                                size="small"
+                                showScreenShare={false}
+                            />
                         </div>
+                        {/* Затем остальных участников */}
+                        {others.map((participant) => (
+                            <div
+                                key={participant.id}
+                                className="flex-shrink-0 w-80"
+                            >
+                                <ParticipantTile
+                                    participant={participant}
+                                    size="small"
+                                    showScreenShare={false}
+                                />
+                            </div>
+                        ))}
                     </div>
-                )}
+                </div>
             </div>
         );
     }
@@ -175,6 +274,7 @@ const VideoGrid = ({
                     key={participant.id}
                     participant={participant}
                     size="normal"
+                    showScreenShare={false}
                 />
             ))}
         </div>
