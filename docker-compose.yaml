@@ -68,34 +68,62 @@ services:
         networks:
             - conference_network
 
-    rrtc:
+    # rrtc:
+    #     build:
+    #         context: ./rrtc
+    #         dockerfile: dockerfile
+    #     container_name: rrtc
+    #     restart: unless-stopped
+    #     environment:
+    #         RUST_LOG: info
+    #         SIGNALING_PORT: 8080
+    #         LISTEN_ADDRESS: 0.0.0.0
+    #         MAX_PARTICIPANTS: 50
+    #         VERBOSE_LOGGING: "false"
+    #         # TURN конфигурация - используем coturn через docker сеть
+    #         TURN_URLS: "turn:coturn:3478?transport=udp,turn:coturn:3478?transport=tcp,turn:81.30.105.33:3478?transport=udp,turn:81.30.105.33:3478?transport=tcp"
+    #         TURN_USERNAME: webrtc
+    #         TURN_CREDENTIAL: secure_password_123
+    #     ports:
+    #         - "8081:8080" # WebSocket signaling
+    #     depends_on:
+    #         - coturn
+    #     networks:
+    #         - conference_network
+    #     healthcheck:
+    #         test: ["CMD", "pgrep", "rrtc"]
+    #         interval: 30s
+    #         timeout: 10s
+    #         retries: 3
+    #         start_period: 10s
+
+    mediasoup:
         build:
-            context: ./rrtc
-            dockerfile: dockerfile
-        container_name: rrtc
+            context: ./soup
+            dockerfile: Dockerfile
+        container_name: mediasoup
         restart: unless-stopped
         environment:
-            RUST_LOG: info
-            SIGNALING_PORT: 8080
-            LISTEN_ADDRESS: 0.0.0.0
-            MAX_PARTICIPANTS: 50
-            VERBOSE_LOGGING: "false"
-            # TURN конфигурация - используем coturn через docker сеть
-            TURN_URLS: "turn:coturn:3478?transport=udp,turn:coturn:3478?transport=tcp,turn:81.30.105.33:3478?transport=udp,turn:81.30.105.33:3478?transport=tcp"
-            TURN_USERNAME: webrtc
-            TURN_CREDENTIAL: secure_password_123
+            NODE_ENV: production
+            ANNOUNCED_IP: 81.30.105.33
         ports:
-            - "8081:8080" # WebSocket signaling
-        depends_on:
-            - coturn
+            - "3000:3000"
+            - "40000-40100:40000-40100/udp"
+            - "40000-40100:40000-40100/tcp"
         networks:
             - conference_network
         healthcheck:
-            test: ["CMD", "pgrep", "rrtc"]
+            test:
+                [
+                    "CMD",
+                    "node",
+                    "-e",
+                    "require('http').get('http://localhost:3000/health', (r) => process.exit(r.statusCode === 200 ? 0 : 1))",
+                ]
             interval: 30s
             timeout: 10s
             retries: 3
-            start_period: 10s
+            start_period: 15s
 
     go_api:
         build:
@@ -118,8 +146,8 @@ services:
         depends_on:
             db:
                 condition: service_healthy
-            rrtc:
-                condition: service_healthy
+            # rrtc:
+            #     condition: service_healthy
         networks:
             - conference_network
 
@@ -138,7 +166,7 @@ services:
             REACT_APP_TURN_URL: turn:81.30.105.33:3478
         depends_on:
             - go_api
-            - rrtc
+            # - rrtc
         stdin_open: true
         tty: true
         networks:

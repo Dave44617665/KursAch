@@ -165,10 +165,23 @@ const VideoGrid = ({
 }) => {
     // Add local stream to participants list if not already there
     const allParticipants = React.useMemo(() => {
-        const hasLocalStream = participants.some(
-            (p) => p.stream === localStream,
-        );
-        if (localStream && !hasLocalStream) {
+        console.log("[VideoGrid] Building participants list:", {
+            participantsCount: participants.length,
+            hasLocalStream: !!localStream,
+            participants: participants.map((p) => ({
+                id: p.id,
+                name: p.name,
+                hasStream: !!p.stream,
+            })),
+        });
+
+        // Always add local participant if we have a local stream
+        if (localStream) {
+            const remoteParticipants = participants.map((p) => ({
+                ...p,
+                isOwn: false,
+            }));
+
             return [
                 {
                     id: "local",
@@ -180,26 +193,23 @@ const VideoGrid = ({
                     isScreenSharing: isScreenSharing,
                     isOwn: true,
                 },
-                ...participants,
+                ...remoteParticipants,
             ];
         }
-        return participants.map((p) => {
-            if (p.stream === localStream) {
-                return {
-                    ...p,
-                    screenStream: localScreenStream,
-                    isMuted: isMuted,
-                    isVideoOn: isVideoOn,
-                    isScreenSharing: isScreenSharing,
-                    isOwn: true,
-                };
-            }
-            return {
-                ...p,
-                isOwn: false,
-            };
-        });
-    }, [participants, localStream, isScreenSharing, isMuted, isVideoOn]);
+
+        // If no local stream, just show remote participants
+        return participants.map((p) => ({
+            ...p,
+            isOwn: false,
+        }));
+    }, [
+        participants,
+        localStream,
+        localScreenStream,
+        isScreenSharing,
+        isMuted,
+        isVideoOn,
+    ]);
 
     const presenting = allParticipants.find((p) => p.isScreenSharing);
     const others = allParticipants.filter((p) => !p.isScreenSharing);
