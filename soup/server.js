@@ -132,6 +132,15 @@ class Peer {
             initialAvailableOutgoingBitrate:
                 config.mediasoup.webRtcTransport
                     .initialAvailableOutgoingBitrate,
+            // Добавляем ICE servers для лучшей совместимости
+            iceServers: [
+                {
+                    urls: [
+                        "stun:stun.l.google.com:19302",
+                        "stun:stun1.l.google.com:19302",
+                    ],
+                },
+            ],
         });
 
         if (config.mediasoup.webRtcTransport.maxIncomingBitrate) {

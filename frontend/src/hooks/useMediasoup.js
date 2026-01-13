@@ -8,6 +8,7 @@ export const useMediasoup = (
 ) => {
     const [participants, setParticipants] = useState([]);
     const [localStream, setLocalStream] = useState(null);
+    const [localScreenStream, setLocalScreenStream] = useState(null);
     const [isMuted, setIsMuted] = useState(true);
     const [isVideoOn, setIsVideoOn] = useState(false);
     const [isScreenSharing, setIsScreenSharing] = useState(false);
@@ -21,6 +22,7 @@ export const useMediasoup = (
     const producersRef = useRef(new Map());
     const consumersRef = useRef(new Map());
     const localStreamRef = useRef(null);
+    const localScreenStreamRef = useRef(null);
     const myPeerIdRef = useRef(null);
     const participantsStreamsRef = useRef(new Map());
     const pendingConsumersRef = useRef([]);
@@ -31,6 +33,8 @@ export const useMediasoup = (
             userName,
             hasToken: !!jwtToken,
             token: jwtToken ? `${jwtToken.substring(0, 20)}...` : "NULL",
+            location: window.location.href,
+            hostname: window.location.hostname,
         });
 
         if (!jwtToken) {
@@ -47,25 +51,32 @@ export const useMediasoup = (
 
         const connect = async () => {
             try {
-                // Connect WebSocket
-                const wsProtocol =
+                // Всегда используем production адрес через nginx proxy
+                const protocol =
                     window.location.protocol === "https:" ? "wss:" : "ws:";
-                // В dev режиме подключаемся напрямую к порту 3000, в production через nginx
-                const isDev = process.env.NODE_ENV === "development";
-                const wsUrl = isDev
-                    ? `ws://localhost:3000`
-                    : `${wsProtocol}//81.30.105.33:3000`;
+                const host = window.location.host;
+                const wsUrl = `${protocol}//${host}/mediasoup/`;
 
                 console.log("[MediaSoup] Connecting to:", wsUrl);
+                console.log("[MediaSoup] Protocol:", protocol);
+                console.log("[MediaSoup] Host:", host);
+
                 ws = new WebSocket(wsUrl);
                 wsRef.current = ws;
 
                 ws.onopen = async () => {
-                    console.log("[MediaSoup] WebSocket connected");
+                    console.log(
+                        "[MediaSoup] ✓ WebSocket connected successfully",
+                    );
                     setIsConnected(true);
 
                     // Generate peer ID
                     myPeerIdRef.current = `peer-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
+                    console.log(
+                        "[MediaSoup] Sending join message with peerId:",
+                        myPeerIdRef.current,
+                    );
 
                     // Join room
                     ws.send(
@@ -81,7 +92,11 @@ export const useMediasoup = (
                 ws.onmessage = async (event) => {
                     try {
                         const data = JSON.parse(event.data);
-                        console.log("[MediaSoup] Received:", data.type);
+                        console.log(
+                            "[MediaSoup] ← Received message:",
+                            data.type,
+                            data,
+                        );
 
                         await handleMessage(data, ws);
                     } catch (error) {
@@ -93,12 +108,21 @@ export const useMediasoup = (
                 };
 
                 ws.onerror = (error) => {
-                    console.error("[MediaSoup] WebSocket error:", error);
+                    console.error("[MediaSoup] ✗ WebSocket error:", error);
+                    console.error("[MediaSoup] WebSocket URL:", ws.url);
+                    console.error(
+                        "[MediaSoup] WebSocket readyState:",
+                        ws.readyState,
+                    );
                     setIsConnected(false);
                 };
 
-                ws.onclose = () => {
-                    console.log("[MediaSoup] WebSocket closed");
+                ws.onclose = (event) => {
+                    console.log("[MediaSoup] WebSocket closed", {
+                        code: event.code,
+                        reason: event.reason,
+                        wasClean: event.wasClean,
+                    });
                     setIsConnected(false);
                 };
             } catch (error) {
@@ -160,243 +184,401 @@ export const useMediasoup = (
         };
 
         const handleJoined = async (data, ws) => {
-            console.log("[MediaSoup] Joined room, creating device...");
-
-            // Create mediasoup device
-            const device = new mediasoupClient.Device();
-            await device.load({ routerRtpCapabilities: data.rtpCapabilities });
-            deviceRef.current = device;
-            console.log("[MediaSoup] Device created");
-
-            // Get local media
-            const stream = await navigator.mediaDevices.getUserMedia({
-                audio: true,
-                video: {
-                    width: { ideal: 1280 },
-                    height: { ideal: 720 },
-                },
-            });
-
-            localStreamRef.current = stream;
-            setLocalStream(stream);
-
-            // Set initial track states - audio muted, video off by default
-            stream.getAudioTracks().forEach((track) => (track.enabled = false));
-            stream.getVideoTracks().forEach((track) => (track.enabled = false));
-
-            console.log("[MediaSoup] Local stream obtained", {
-                audioTracks: stream.getAudioTracks().length,
-                videoTracks: stream.getVideoTracks().length,
-            });
-
-            // Create send transport
-            ws.send(
-                JSON.stringify({
-                    type: "createWebRtcTransport",
-                    direction: "send",
-                    appData: { producing: true },
-                }),
+            console.log("[MediaSoup] Joined room, creating device.. .");
+            console.log(
+                "[MediaSoup] Router RTP Capabilities:",
+                data.rtpCapabilities,
             );
 
-            // Create recv transport
-            ws.send(
-                JSON.stringify({
-                    type: "createWebRtcTransport",
-                    direction: "recv",
-                    appData: { consuming: true },
-                }),
-            );
-
-            // Add existing peers
-            if (data.peers && data.peers.length > 0) {
+            try {
+                // Create mediasoup device
+                const device = new mediasoupClient.Device();
+                await device.load({
+                    routerRtpCapabilities: data.rtpCapabilities,
+                });
+                deviceRef.current = device;
+                console.log("[MediaSoup] ✓ Device created");
                 console.log(
-                    "[MediaSoup] Adding existing peers:",
-                    data.peers.length,
+                    "[MediaSoup] Device RTP Capabilities:",
+                    device.rtpCapabilities,
                 );
-                setParticipants(
-                    data.peers.map((p) => ({
-                        id: p.id,
-                        name: p.name,
-                        stream: null,
-                        isMuted: p.muted,
-                        isVideoOn: p.videoOn,
-                        isScreenSharing: p.screenSharing,
-                    })),
+                console.log(
+                    "[MediaSoup] Device SCTP Capabilities:",
+                    device.sctpCapabilities,
                 );
 
-                // Store pending consumers to consume after recv transport is ready
-                for (const peer of data.peers) {
-                    if (peer.producers && peer.producers.length > 0) {
-                        for (const producer of peer.producers) {
-                            pendingConsumersRef.current.push({
-                                producerPeerId: peer.id,
-                                producerId: producer.id,
-                                kind: producer.kind,
-                            });
-                            console.log(
-                                `[MediaSoup] Queued producer ${producer.id} (${producer.kind}) from peer ${peer.id} for consumption`,
-                            );
+                // Get local media
+                console.log("[MediaSoup] Requesting user media...");
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    audio: true,
+                    video: {
+                        width: { ideal: 1280 },
+                        height: { ideal: 720 },
+                    },
+                });
+
+                localStreamRef.current = stream;
+                setLocalStream(stream);
+
+                // Set initial track states - audio muted, video off by default
+                stream.getAudioTracks().forEach((track) => {
+                    track.enabled = false;
+                    console.log(
+                        "[MediaSoup] Audio track:",
+                        track.id,
+                        "enabled:",
+                        track.enabled,
+                        "readyState:",
+                        track.readyState,
+                    );
+                });
+                stream.getVideoTracks().forEach((track) => {
+                    track.enabled = false;
+                    console.log(
+                        "[MediaSoup] Video track:",
+                        track.id,
+                        "enabled:",
+                        track.enabled,
+                        "readyState:",
+                        track.readyState,
+                    );
+                });
+
+                console.log("[MediaSoup] ✓ Local stream obtained", {
+                    audioTracks: stream.getAudioTracks().length,
+                    videoTracks: stream.getVideoTracks().length,
+                });
+
+                // Create send transport
+                console.log("[MediaSoup] → Requesting send transport...");
+                ws.send(
+                    JSON.stringify({
+                        type: "createWebRtcTransport",
+                        direction: "send",
+                        appData: { producing: true },
+                    }),
+                );
+
+                // Create recv transport
+                console.log("[MediaSoup] → Requesting recv transport.. .");
+                ws.send(
+                    JSON.stringify({
+                        type: "createWebRtcTransport",
+                        direction: "recv",
+                        appData: { consuming: true },
+                    }),
+                );
+
+                // Add existing peers
+                if (data.peers && data.peers.length > 0) {
+                    console.log(
+                        "[MediaSoup] Adding existing peers:",
+                        data.peers.length,
+                    );
+                    setParticipants(
+                        data.peers.map((p) => ({
+                            id: p.id,
+                            name: p.name,
+                            stream: null,
+                            screenStream: null,
+                            isMuted: p.muted !== undefined ? p.muted : true,
+                            isVideoOn:
+                                p.videoOn !== undefined ? p.videoOn : false,
+                            isScreenSharing:
+                                p.screenSharing !== undefined
+                                    ? p.screenSharing
+                                    : false,
+                        })),
+                    );
+
+                    // Store pending consumers to consume after recv transport is ready
+                    for (const peer of data.peers) {
+                        if (peer.producers && peer.producers.length > 0) {
+                            for (const producer of peer.producers) {
+                                pendingConsumersRef.current.push({
+                                    producerPeerId: peer.id,
+                                    producerId: producer.id,
+                                    kind: producer.kind,
+                                });
+                                console.log(
+                                    `[MediaSoup] Queued producer ${producer.id} (${producer.kind}) from peer ${peer.id} for consumption`,
+                                );
+                            }
                         }
                     }
                 }
+            } catch (error) {
+                console.error("[MediaSoup] Error in handleJoined:", error);
             }
         };
 
         const handleTransportCreated = async (data) => {
             const { direction, transportParams } = data;
-            console.log(`[MediaSoup] Transport created: ${direction}`);
+            console.log(`[MediaSoup] ← Transport created:  ${direction}`);
+            console.log(`[MediaSoup] Transport params: `, transportParams);
 
-            if (direction === "send") {
-                const transport =
-                    deviceRef.current.createSendTransport(transportParams);
-                sendTransportRef.current = transport;
+            try {
+                if (direction === "send") {
+                    const transport =
+                        deviceRef.current.createSendTransport(transportParams);
+                    sendTransportRef.current = transport;
 
-                transport.on(
-                    "connect",
-                    async ({ dtlsParameters }, callback, errback) => {
-                        try {
-                            console.log(
-                                "[MediaSoup] Send transport connecting...",
-                            );
-                            wsRef.current.send(
-                                JSON.stringify({
-                                    type: "connectWebRtcTransport",
-                                    transportId: transport.id,
-                                    dtlsParameters,
-                                }),
-                            );
-                            callback();
-                        } catch (error) {
-                            errback(error);
-                        }
-                    },
-                );
+                    console.log(
+                        "[MediaSoup] Send transport created:",
+                        transport.id,
+                    );
 
-                transport.on(
-                    "produce",
-                    async (
-                        { kind, rtpParameters, appData },
-                        callback,
-                        errback,
-                    ) => {
-                        try {
-                            console.log(`[MediaSoup] Producing ${kind}...`);
+                    transport.on(
+                        "connect",
+                        async ({ dtlsParameters }, callback, errback) => {
+                            try {
+                                console.log(
+                                    "[MediaSoup] → Send transport connecting...",
+                                );
+                                wsRef.current.send(
+                                    JSON.stringify({
+                                        type: "connectWebRtcTransport",
+                                        transportId: transport.id,
+                                        dtlsParameters,
+                                    }),
+                                );
+                                callback();
+                                console.log(
+                                    "[MediaSoup] ✓ Send transport connected",
+                                );
+                            } catch (error) {
+                                console.error(
+                                    "[MediaSoup] Send transport connect error:",
+                                    error,
+                                );
+                                errback(error);
+                            }
+                        },
+                    );
 
-                            const response = await new Promise((resolve) => {
-                                const handler = (event) => {
-                                    const msg = JSON.parse(event.data);
-                                    if (msg.type === "produced") {
-                                        wsRef.current.removeEventListener(
+                    transport.on(
+                        "produce",
+                        async (
+                            { kind, rtpParameters, appData },
+                            callback,
+                            errback,
+                        ) => {
+                            try {
+                                console.log(
+                                    `[MediaSoup] → Producing ${kind}...`,
+                                );
+                                console.log(
+                                    `[MediaSoup] RTP Parameters:`,
+                                    rtpParameters,
+                                );
+
+                                const response = await new Promise(
+                                    (resolve, reject) => {
+                                        const timeout = setTimeout(() => {
+                                            reject(
+                                                new Error("Produce timeout"),
+                                            );
+                                        }, 10000);
+
+                                        const handler = (event) => {
+                                            const msg = JSON.parse(event.data);
+                                            if (msg.type === "produced") {
+                                                clearTimeout(timeout);
+                                                wsRef.current.removeEventListener(
+                                                    "message",
+                                                    handler,
+                                                );
+                                                resolve(msg);
+                                            }
+                                        };
+                                        wsRef.current.addEventListener(
                                             "message",
                                             handler,
                                         );
-                                        resolve(msg);
-                                    }
-                                };
-                                wsRef.current.addEventListener(
-                                    "message",
-                                    handler,
+
+                                        wsRef.current.send(
+                                            JSON.stringify({
+                                                type: "produce",
+                                                transportId: transport.id,
+                                                kind,
+                                                rtpParameters,
+                                                appData,
+                                            }),
+                                        );
+                                    },
                                 );
 
-                                wsRef.current.send(
-                                    JSON.stringify({
-                                        type: "produce",
-                                        transportId: transport.id,
-                                        kind,
-                                        rtpParameters,
-                                        appData,
-                                    }),
+                                console.log(
+                                    `[MediaSoup] ✓ Producer created: ${response.producerId}`,
                                 );
+                                callback({ id: response.producerId });
+                            } catch (error) {
+                                console.error(
+                                    `[MediaSoup] Produce error: `,
+                                    error,
+                                );
+                                errback(error);
+                            }
+                        },
+                    );
+
+                    transport.on("connectionstatechange", (state) => {
+                        console.log(
+                            `[MediaSoup] Send transport connection state: ${state}`,
+                        );
+                    });
+
+                    transport.on("icestatechange", (state) => {
+                        console.log(
+                            `[MediaSoup] Send transport ICE state: ${state}`,
+                        );
+                    });
+
+                    // Produce audio and video
+                    if (localStreamRef.current) {
+                        const audioTrack =
+                            localStreamRef.current.getAudioTracks()[0];
+                        const videoTrack =
+                            localStreamRef.current.getVideoTracks()[0];
+
+                        if (audioTrack) {
+                            console.log(
+                                "[MediaSoup] Creating audio producer...",
+                            );
+                            const audioProducer = await transport.produce({
+                                track: audioTrack,
+                            });
+                            producersRef.current.set("audio", audioProducer);
+                            console.log(
+                                "[MediaSoup] ✓ Audio producer created:",
+                                audioProducer.id,
+                            );
+
+                            audioProducer.on("trackended", () => {
+                                console.log("[MediaSoup] Audio track ended");
                             });
 
-                            callback({ id: response.producerId });
-                        } catch (error) {
-                            errback(error);
+                            audioProducer.on("transportclose", () => {
+                                console.log(
+                                    "[MediaSoup] Audio producer transport closed",
+                                );
+                            });
                         }
-                    },
-                );
 
-                // Produce audio and video
-                if (localStreamRef.current) {
-                    const audioTrack =
-                        localStreamRef.current.getAudioTracks()[0];
-                    const videoTrack =
-                        localStreamRef.current.getVideoTracks()[0];
-
-                    if (audioTrack) {
-                        const audioProducer = await transport.produce({
-                            track: audioTrack,
-                        });
-                        producersRef.current.set("audio", audioProducer);
-                        console.log("[MediaSoup] Audio producer created");
-                    }
-
-                    if (videoTrack) {
-                        const videoProducer = await transport.produce({
-                            track: videoTrack,
-                        });
-                        producersRef.current.set("video", videoProducer);
-                        console.log("[MediaSoup] Video producer created");
-                    }
-                }
-            } else if (direction === "recv") {
-                const transport =
-                    deviceRef.current.createRecvTransport(transportParams);
-                recvTransportRef.current = transport;
-
-                transport.on(
-                    "connect",
-                    async ({ dtlsParameters }, callback, errback) => {
-                        try {
+                        if (videoTrack) {
                             console.log(
-                                "[MediaSoup] Recv transport connecting...",
+                                "[MediaSoup] Creating video producer...",
                             );
-                            wsRef.current.send(
+                            const videoProducer = await transport.produce({
+                                track: videoTrack,
+                            });
+                            producersRef.current.set("video", videoProducer);
+                            console.log(
+                                "[MediaSoup] ✓ Video producer created:",
+                                videoProducer.id,
+                            );
+
+                            videoProducer.on("trackended", () => {
+                                console.log("[MediaSoup] Video track ended");
+                            });
+
+                            videoProducer.on("transportclose", () => {
+                                console.log(
+                                    "[MediaSoup] Video producer transport closed",
+                                );
+                            });
+                        }
+                    }
+                } else if (direction === "recv") {
+                    const transport =
+                        deviceRef.current.createRecvTransport(transportParams);
+                    recvTransportRef.current = transport;
+
+                    console.log(
+                        "[MediaSoup] Recv transport created:",
+                        transport.id,
+                    );
+
+                    transport.on(
+                        "connect",
+                        async ({ dtlsParameters }, callback, errback) => {
+                            try {
+                                console.log(
+                                    "[MediaSoup] → Recv transport connecting...",
+                                );
+                                wsRef.current.send(
+                                    JSON.stringify({
+                                        type: "connectWebRtcTransport",
+                                        transportId: transport.id,
+                                        dtlsParameters,
+                                    }),
+                                );
+                                callback();
+                                console.log(
+                                    "[MediaSoup] ✓ Recv transport connected",
+                                );
+                            } catch (error) {
+                                console.error(
+                                    "[MediaSoup] Recv transport connect error:",
+                                    error,
+                                );
+                                errback(error);
+                            }
+                        },
+                    );
+
+                    transport.on("connectionstatechange", (state) => {
+                        console.log(
+                            `[MediaSoup] Recv transport connection state: ${state}`,
+                        );
+                    });
+
+                    transport.on("icestatechange", (state) => {
+                        console.log(
+                            `[MediaSoup] Recv transport ICE state: ${state}`,
+                        );
+                    });
+
+                    // Consume pending producers now that recv transport is ready
+                    if (pendingConsumersRef.current.length > 0) {
+                        console.log(
+                            `[MediaSoup] Consuming ${pendingConsumersRef.current.length} pending producers`,
+                        );
+                        for (const pending of pendingConsumersRef.current) {
+                            console.log(
+                                `[MediaSoup] → Requesting consume for producer ${pending.producerId} (${pending.kind})`,
+                            );
+                            ws.send(
                                 JSON.stringify({
-                                    type: "connectWebRtcTransport",
-                                    transportId: transport.id,
-                                    dtlsParameters,
+                                    type: "consume",
+                                    producerPeerId: pending.producerPeerId,
+                                    producerId: pending.producerId,
+                                    rtpCapabilities:
+                                        deviceRef.current.rtpCapabilities,
                                 }),
                             );
-                            callback();
-                        } catch (error) {
-                            errback(error);
                         }
-                    },
-                );
-
-                // Consume pending producers now that recv transport is ready
-                if (pendingConsumersRef.current.length > 0) {
-                    console.log(
-                        `[MediaSoup] Consuming ${pendingConsumersRef.current.length} pending producers`,
-                    );
-                    for (const pending of pendingConsumersRef.current) {
-                        ws.send(
-                            JSON.stringify({
-                                type: "consume",
-                                producerPeerId: pending.producerPeerId,
-                                producerId: pending.producerId,
-                                rtpCapabilities:
-                                    deviceRef.current.rtpCapabilities,
-                            }),
-                        );
+                        pendingConsumersRef.current = [];
                     }
-                    pendingConsumersRef.current = [];
                 }
+            } catch (error) {
+                console.error(
+                    `[MediaSoup] Error creating ${direction} transport:`,
+                    error,
+                );
             }
         };
 
         const handleNewProducer = async (data, ws) => {
-            const { producerId, producerPeerId, kind } = data;
+            const { producerId, producerPeerId, kind, producerName } = data;
             console.log(
-                `[MediaSoup] New producer: ${producerId} (${kind}) from ${producerPeerId}`,
+                `[MediaSoup] ← New producer: ${producerId} (${kind}) from ${producerPeerId} (${producerName})`,
             );
 
             if (!deviceRef.current || !recvTransportRef.current) {
                 console.warn(
                     "[MediaSoup] Device or recv transport not ready, queuing producer",
                 );
-                // Queue for later consumption
                 pendingConsumersRef.current.push({
                     producerPeerId,
                     producerId,
@@ -406,6 +588,9 @@ export const useMediasoup = (
             }
 
             // Consume the producer
+            console.log(
+                `[MediaSoup] → Requesting consume for producer ${producerId}`,
+            );
             ws.send(
                 JSON.stringify({
                     type: "consume",
@@ -419,62 +604,73 @@ export const useMediasoup = (
         const handleConsumed = async (data) => {
             const { consumerParams, producerPeerId } = data;
             console.log(
-                `[MediaSoup] Consuming: ${consumerParams.id} (${consumerParams.kind}) from peer ${producerPeerId}`,
+                `[MediaSoup] ← Consumed:  ${consumerParams.id} (${consumerParams.kind}) from peer ${producerPeerId}`,
             );
+            console.log("[MediaSoup] Consumer params:", consumerParams);
 
-            const consumer =
-                await recvTransportRef.current.consume(consumerParams);
-            consumersRef.current.set(consumer.id, consumer);
+            try {
+                const consumer =
+                    await recvTransportRef.current.consume(consumerParams);
+                consumersRef.current.set(consumer.id, consumer);
 
-            // Resume consumer
-            wsRef.current.send(
-                JSON.stringify({
-                    type: "resumeConsumer",
-                    consumerId: consumer.id,
-                }),
-            );
-
-            // Add track to participant stream
-            const track = consumer.track;
-            updateParticipantStream(producerPeerId, track, consumerParams.kind);
-
-            consumer.on("trackended", () => {
-                console.log("[MediaSoup] Consumer track ended:", consumer.id);
-            });
-
-            consumer.on("transportclose", () => {
+                console.log(`[MediaSoup] ✓ Consumer created: ${consumer.id}`);
+                console.log(`[MediaSoup] Consumer track: `, consumer.track);
                 console.log(
-                    "[MediaSoup] Consumer transport closed:",
-                    consumer.id,
+                    `[MediaSoup] Track readyState:`,
+                    consumer.track.readyState,
                 );
-            });
+                console.log(
+                    `[MediaSoup] Track enabled:`,
+                    consumer.track.enabled,
+                );
+
+                // Resume consumer
+                console.log(`[MediaSoup] → Resuming consumer ${consumer.id}`);
+                wsRef.current.send(
+                    JSON.stringify({
+                        type: "resumeConsumer",
+                        consumerId: consumer.id,
+                    }),
+                );
+
+                // Add track to participant stream
+                const track = consumer.track;
+                updateParticipantStream(
+                    producerPeerId,
+                    track,
+                    consumerParams.kind,
+                );
+
+                consumer.on("trackended", () => {
+                    console.log(
+                        "[MediaSoup] Consumer track ended:",
+                        consumer.id,
+                    );
+                });
+
+                consumer.on("transportclose", () => {
+                    console.log(
+                        "[MediaSoup] Consumer transport closed:",
+                        consumer.id,
+                    );
+                });
+            } catch (error) {
+                console.error("[MediaSoup] Error in handleConsumed:", error);
+            }
         };
 
         const updateParticipantStream = (producerPeerId, track, kind) => {
             console.log(
-                `[MediaSoup] updateParticipantStream called for peer ${producerPeerId}, track kind: ${kind}`,
+                `[MediaSoup] updateParticipantStream called for peer ${producerPeerId}, track kind: ${kind}, track enabled: ${track.enabled}, readyState: ${track.readyState}`,
             );
 
             setParticipants((prev) => {
-                console.log(
-                    `[MediaSoup] Current participants:`,
-                    prev.map((p) => ({
-                        id: p.id,
-                        name: p.name,
-                        hasStream: !!p.stream,
-                        audioTracks: p.stream?.getAudioTracks().length || 0,
-                        videoTracks: p.stream?.getVideoTracks().length || 0,
-                    })),
-                );
-
                 const updated = [...prev];
-
-                // Find participant by peer ID
                 const idx = updated.findIndex((p) => p.id === producerPeerId);
 
                 if (idx === -1) {
                     console.warn(
-                        `[MediaSoup] Participant with ID ${producerPeerId} not found!`,
+                        `[MediaSoup] Participant with ID ${producerPeerId} not found! `,
                     );
                     return prev;
                 }
@@ -488,8 +684,14 @@ export const useMediasoup = (
                         .getTracks()
                         .filter((t) => t.kind !== track.kind);
                     newStream = new MediaStream([...existingTracks, track]);
+                    console.log(
+                        `[MediaSoup] Updated existing stream for ${participant.name}`,
+                    );
                 } else {
                     newStream = new MediaStream([track]);
+                    console.log(
+                        `[MediaSoup] Created new stream for ${participant.name}`,
+                    );
                 }
 
                 updated[idx] = {
@@ -498,7 +700,10 @@ export const useMediasoup = (
                 };
 
                 console.log(
-                    `[MediaSoup] ✓ Added ${track.kind} track to ${participant.name}, stream now has ${newStream.getAudioTracks().length} audio, ${newStream.getVideoTracks().length} video tracks`,
+                    `[MediaSoup] ✓ Added ${track.kind} track to ${participant.name}`,
+                );
+                console.log(
+                    `[MediaSoup] Stream tracks: ${newStream.getAudioTracks().length} audio, ${newStream.getVideoTracks().length} video`,
                 );
 
                 return updated;
@@ -507,10 +712,18 @@ export const useMediasoup = (
 
         const handlePeerJoined = (data) => {
             const { peerId, peerName, muted, videoOn, screenSharing } = data;
-            console.log("[MediaSoup] Peer joined:", peerName);
+            console.log("[MediaSoup] ← Peer joined:", peerName, {
+                peerId,
+                muted,
+                videoOn,
+                screenSharing,
+            });
 
             setParticipants((prev) => {
                 if (prev.find((p) => p.id === peerId)) {
+                    console.log(
+                        `[MediaSoup] Peer ${peerName} already exists, skipping`,
+                    );
                     return prev;
                 }
                 return [
@@ -519,9 +732,11 @@ export const useMediasoup = (
                         id: peerId,
                         name: peerName,
                         stream: null,
-                        isMuted: muted,
-                        isVideoOn: videoOn,
-                        isScreenSharing: screenSharing,
+                        screenStream: null,
+                        isMuted: muted !== undefined ? muted : true,
+                        isVideoOn: videoOn !== undefined ? videoOn : false,
+                        isScreenSharing:
+                            screenSharing !== undefined ? screenSharing : false,
                     },
                 ];
             });
@@ -529,13 +744,19 @@ export const useMediasoup = (
 
         const handlePeerLeft = (data) => {
             const { peerId } = data;
-            console.log("[MediaSoup] Peer left:", peerId);
+            console.log("[MediaSoup] ← Peer left:", peerId);
 
             setParticipants((prev) => prev.filter((p) => p.id !== peerId));
         };
 
         const handlePeerStateUpdate = (data) => {
             const { peerId, muted, videoOn, screenSharing } = data;
+            console.log("[MediaSoup] ← Peer state update:", {
+                peerId,
+                muted,
+                videoOn,
+                screenSharing,
+            });
 
             setParticipants((prev) =>
                 prev.map((p) => {
@@ -558,7 +779,7 @@ export const useMediasoup = (
 
         const handleConsumerClosed = (data) => {
             const { consumerId } = data;
-            console.log("[MediaSoup] Consumer closed:", consumerId);
+            console.log("[MediaSoup] ← Consumer closed:", consumerId);
             consumersRef.current.delete(consumerId);
         };
 
@@ -594,6 +815,13 @@ export const useMediasoup = (
                     .forEach((track) => track.stop());
             }
 
+            // Stop screen stream
+            if (localScreenStreamRef.current) {
+                localScreenStreamRef.current
+                    .getTracks()
+                    .forEach((track) => track.stop());
+            }
+
             // Close WebSocket
             if (wsRef.current) {
                 wsRef.current.close();
@@ -607,13 +835,16 @@ export const useMediasoup = (
         const audioTrack = localStreamRef.current.getAudioTracks()[0];
         if (audioTrack) {
             audioTrack.enabled = !audioTrack.enabled;
-            setIsMuted(!audioTrack.enabled);
+            const newMutedState = !audioTrack.enabled;
+            setIsMuted(newMutedState);
+
+            console.log("[MediaSoup] Toggled mute:", newMutedState);
 
             if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
                 wsRef.current.send(
                     JSON.stringify({
                         type: "stateUpdate",
-                        muted: !audioTrack.enabled,
+                        muted: newMutedState,
                     }),
                 );
             }
@@ -621,28 +852,164 @@ export const useMediasoup = (
     }, []);
 
     const toggleVideo = useCallback(() => {
-        if (!localStreamRef.current) return;
+        if (!localStreamRef.current) {
+            console.error("[MediaSoup] No local stream available");
+            return;
+        }
 
         const videoTrack = localStreamRef.current.getVideoTracks()[0];
         if (videoTrack) {
             videoTrack.enabled = !videoTrack.enabled;
-            setIsVideoOn(videoTrack.enabled);
+            const newVideoState = videoTrack.enabled;
+            setIsVideoOn(newVideoState);
+
+            console.log("[MediaSoup] Toggled video:", newVideoState);
 
             if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
                 wsRef.current.send(
                     JSON.stringify({
                         type: "stateUpdate",
-                        videoOn: videoTrack.enabled,
+                        videoOn: newVideoState,
                     }),
                 );
             }
+        } else {
+            console.error("[MediaSoup] No video track found");
         }
     }, []);
 
     const toggleScreenShare = useCallback(async () => {
-        console.log("[MediaSoup] Screen share toggle - not implemented yet");
-        // TODO: Implement screen sharing
-    }, []);
+        console.log("[MediaSoup] Screen share toggle called", {
+            isScreenSharing,
+            hasSendTransport: !!sendTransportRef.current,
+        });
+
+        try {
+            if (isScreenSharing) {
+                // Stop screen sharing
+                console.log("[MediaSoup] Stopping screen share");
+
+                // Close screen producer
+                const screenProducer = producersRef.current.get("screen");
+                if (screenProducer) {
+                    screenProducer.close();
+                    producersRef.current.delete("screen");
+                    console.log("[MediaSoup] Screen producer closed");
+                }
+
+                // Stop screen tracks
+                if (localScreenStreamRef.current) {
+                    localScreenStreamRef.current
+                        .getTracks()
+                        .forEach((track) => {
+                            track.stop();
+                            console.log(
+                                "[MediaSoup] Stopped screen track:",
+                                track.kind,
+                            );
+                        });
+                    localScreenStreamRef.current = null;
+                    setLocalScreenStream(null);
+                }
+
+                setIsScreenSharing(false);
+
+                // Notify server
+                if (
+                    wsRef.current &&
+                    wsRef.current.readyState === WebSocket.OPEN
+                ) {
+                    wsRef.current.send(
+                        JSON.stringify({
+                            type: "stateUpdate",
+                            screenSharing: false,
+                        }),
+                    );
+                }
+            } else {
+                // Start screen sharing
+                console.log("[MediaSoup] Starting screen share");
+
+                // Check if send transport exists
+                if (!sendTransportRef.current) {
+                    throw new Error("Send transport not available");
+                }
+
+                // Get screen stream
+                const screenStream =
+                    await navigator.mediaDevices.getDisplayMedia({
+                        video: {
+                            width: { ideal: 1920 },
+                            height: { ideal: 1080 },
+                            frameRate: { ideal: 30 },
+                        },
+                        audio: false,
+                    });
+
+                localScreenStreamRef.current = screenStream;
+                setLocalScreenStream(screenStream);
+
+                console.log("[MediaSoup] Screen stream obtained", {
+                    videoTracks: screenStream.getVideoTracks().length,
+                });
+
+                // Handle stream ended (user stopped sharing via browser UI)
+                screenStream.getVideoTracks()[0].onended = () => {
+                    console.log("[MediaSoup] Screen share track ended by user");
+                    toggleScreenShare(); // Stop screen sharing
+                };
+
+                // Produce screen video using existing send transport
+                const screenTrack = screenStream.getVideoTracks()[0];
+                if (screenTrack && sendTransportRef.current) {
+                    const screenProducer =
+                        await sendTransportRef.current.produce({
+                            track: screenTrack,
+                            appData: { screen: true },
+                        });
+                    producersRef.current.set("screen", screenProducer);
+                    console.log("[MediaSoup] Screen producer created");
+                }
+
+                setIsScreenSharing(true);
+
+                // Notify server
+                if (
+                    wsRef.current &&
+                    wsRef.current.readyState === WebSocket.OPEN
+                ) {
+                    wsRef.current.send(
+                        JSON.stringify({
+                            type: "stateUpdate",
+                            screenSharing: true,
+                        }),
+                    );
+                }
+            }
+        } catch (error) {
+            console.error("[MediaSoup] Screen share error:", error);
+
+            // Clean up on error
+            if (localScreenStreamRef.current) {
+                localScreenStreamRef.current
+                    .getTracks()
+                    .forEach((track) => track.stop());
+                localScreenStreamRef.current = null;
+                setLocalScreenStream(null);
+            }
+
+            setIsScreenSharing(false);
+
+            // Show user-friendly error message
+            if (error.name === "NotAllowedError") {
+                alert("Screen sharing permission denied");
+            } else if (error.name === "NotFoundError") {
+                alert("No screen available to share");
+            } else {
+                alert("Failed to start screen sharing: " + error.message);
+            }
+        }
+    }, [isScreenSharing]);
 
     const leaveCall = useCallback(() => {
         console.log("[MediaSoup] Leaving call");
@@ -663,6 +1030,11 @@ export const useMediasoup = (
         if (localStreamRef.current) {
             localStreamRef.current.getTracks().forEach((track) => track.stop());
         }
+        if (localScreenStreamRef.current) {
+            localScreenStreamRef.current
+                .getTracks()
+                .forEach((track) => track.stop());
+        }
         if (wsRef.current) {
             wsRef.current.close();
         }
@@ -678,6 +1050,7 @@ export const useMediasoup = (
     return {
         participants,
         localStream,
+        localScreenStream,
         isMuted,
         isVideoOn,
         isScreenSharing,

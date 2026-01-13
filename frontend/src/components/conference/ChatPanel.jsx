@@ -103,7 +103,7 @@ const ChatPanel = ({
     if (!isOpen) return null;
 
     return (
-        <div className="absolute right-0 top-0 bottom-0 w-80 bg-white border-l border-gray-200 flex flex-col z-10">
+        <div className="absolute right-0 top-0 bottom-0 w-80 bg-white border-l border-gray-200 flex flex-col z-10 shadow-2xl">
             {/* Header */}
             <div className="flex items-center justify-between p-4 border-b border-gray-200">
                 <h3 className="font-semibold text-gray-900">
@@ -124,12 +124,12 @@ const ChatPanel = ({
                         No messages yet. Start the conversation!
                     </div>
                 ) : (
-                    messages.map((msg) => {
+                    messages.map((msg, index) => {
                         const isOwn = msg.participantId === myParticipantId;
                         const { isFile, fileData, text } = parseMessage(msg);
                         return (
                             <div
-                                key={msg.id}
+                                key={msg.id || index}
                                 className={`flex ${isOwn ? "justify-end" : "justify-start"}`}
                             >
                                 <div
@@ -147,7 +147,7 @@ const ChatPanel = ({
                                     >
                                         {!isOwn && (
                                             <span className="text-xs font-medium text-gray-900">
-                                                {msg.name}
+                                                {msg.name || "Unknown"}
                                             </span>
                                         )}
 
@@ -228,7 +228,7 @@ const ChatPanel = ({
                         <button
                             type="button"
                             onClick={() => setSelectedFile(null)}
-                            className="p-1 hover:bg-indigo-100 rounded transition-colors"
+                            className="p-1 hover: bg-indigo-100 rounded transition-colors"
                         >
                             <X className="w-4 h-4 text-gray-500" />
                         </button>
@@ -254,7 +254,7 @@ const ChatPanel = ({
                         value={message}
                         onChange={(e) => setMessage(e.target.value)}
                         placeholder="Send a message..."
-                        className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none"
+                        className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus: ring-2 focus:ring-indigo-500 focus:border-transparent outline-none"
                         autoFocus={isOpen}
                         disabled={!!selectedFile}
                     />

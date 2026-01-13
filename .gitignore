@@ -14,6 +14,8 @@ frontend/.DS_Store
 frontend/.env
 frontend/.env.local
 frontend/.env.development.local
+node_modules/
+
 
 # IDE
 .vscode/

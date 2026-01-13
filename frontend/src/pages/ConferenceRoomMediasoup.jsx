@@ -1,10 +1,13 @@
 import React, { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
+import { Share2, Check } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
 import { useMediasoup } from "../hooks/useMediasoup";
+import { conferenceService } from "../services/conferenceService";
 import VideoGrid from "../components/conference/VideoGrid";
 import ControlBar from "../components/conference/ControlBar";
 import ChatPanel from "../components/conference/ChatPanel";
+import DeviceSelector from "../components/conference/DeviceSelector";
 import ConnectionStatus from "../components/conference/ConnectionStatus";
 
 const ConferenceRoomMediasoup = () => {
@@ -13,7 +16,8 @@ const ConferenceRoomMediasoup = () => {
     const { user } = useAuth();
     const [isChatOpen, setIsChatOpen] = useState(false);
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-    const [conferenceInfo, setConferenceInfo] = useState(null);
+    const [conference, setConference] = useState(null);
+    const [copied, setCopied] = useState(false);
     const [duration, setDuration] = useState("00:00");
 
     const userName = user?.nickname || user?.email || "Guest";
@@ -38,85 +42,187 @@ const ConferenceRoomMediasoup = () => {
     );
 
     useEffect(() => {
-        document.title = conferenceInfo?.name || "Conference";
-    }, [conferenceInfo]);
+        loadConference();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [conferenceId]);
 
-    useEffect(() => {
-        const startTime = Date.now();
-        const interval = setInterval(() => {
-            const elapsed = Math.floor((Date.now() - startTime) / 1000);
-            const minutes = Math.floor(elapsed / 60);
-            const seconds = elapsed % 60;
-            setDuration(
-                `${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`,
-            );
-        }, 1000);
-
-        return () => clearInterval(interval);
-    }, []);
-
-    const handleLeaveCall = async () => {
-        leaveCall();
-        navigate("/dashboard");
+    const loadConference = async () => {
+        try {
+            const data = await conferenceService.getConference(conferenceId);
+            setConference(data);
+            console.log("[ConferenceRoomMediasoup] Conference loaded:", data);
+        } catch (error) {
+            console.error("Failed to load conference:", error);
+        }
     };
 
-    // Логирование для отладки
+    useEffect(() => {
+        if (conference?.title) {
+            document.title = conference.title;
+        }
+    }, [conference]);
+
+    useEffect(() => {
+        if (
+            !conference ||
+            conference.status !== "active" ||
+            !conference.start_time
+        ) {
+            return;
+        }
+
+        const updateDuration = () => {
+            const now = new Date();
+            const start = new Date(conference.start_time);
+            const diff = Math.floor((now - start) / 1000);
+            const minutes = Math.floor(diff / 60)
+                .toString()
+                .padStart(2, "0");
+            const seconds = (diff % 60).toString().padStart(2, "0");
+            setDuration(`${minutes}:${seconds}`);
+        };
+
+        updateDuration();
+        const interval = setInterval(updateDuration, 1000);
+
+        return () => clearInterval(interval);
+    }, [conference]);
+
+    const handleLeaveCall = async () => {
+        try {
+            await conferenceService.leaveConference(conferenceId);
+            leaveCall();
+            navigate("/dashboard");
+        } catch (error) {
+            console.error("Failed to leave conference:", error);
+            leaveCall();
+            navigate("/dashboard");
+        }
+    };
+
+    const handleCopyInviteLink = () => {
+        if (conference?.readable_id) {
+            const inviteLink = `${window.location.origin}/join/${conference.readable_id}`;
+            navigator.clipboard.writeText(inviteLink);
+            setCopied(true);
+            setTimeout(() => setCopied(false), 2000);
+        }
+    };
+
+    const handleDeviceChange = (devices) => {
+        console.log(
+            "[ConferenceRoomMediasoup] Device change requested:",
+            devices,
+        );
+        // TODO: Implement device switching for MediaSoup
+    };
+
+    const isValidMeetingID = (id) => {
+        if (!id) return false;
+        return /^\d{10}$/.test(id.toString());
+    };
+
+    // Debug logging
     React.useEffect(() => {
         console.log("[ConferenceRoomMediasoup] State updated:", {
             participantsCount: participants.length,
             hasLocalStream: !!localStream,
             isConnected,
-            participants: participants.map((p) => ({
-                id: p.id,
-                name: p.name,
-                hasStream: !!p.stream,
-                audioTracks: p.stream?.getAudioTracks().length || 0,
-                videoTracks: p.stream?.getVideoTracks().length || 0,
-            })),
+            isMuted,
+            isVideoOn,
+            isScreenSharing,
         });
-    }, [participants, localStream, isConnected]);
+    }, [
+        participants,
+        localStream,
+        isConnected,
+        isMuted,
+        isVideoOn,
+        isScreenSharing,
+    ]);
 
     return (
-        <div className="h-screen bg-gray-950 flex flex-col overflow-hidden">
+        <div className="h-screen bg-gray-900 flex flex-col relative overflow-hidden">
+            {/* Connection Status */}
             <ConnectionStatus isConnected={isConnected} />
 
-            <div className="flex-1 flex overflow-hidden">
-                <div
-                    className={`flex-1 transition-all duration-300 ${
-                        isChatOpen ? "mr-80" : ""
-                    }`}
+            {/* Invite and Meeting ID block - hide when chat is open */}
+            <div
+                className={`absolute top-4 right-4 z-20 transition-opacity duration-300 ${
+                    isChatOpen ? "opacity-0 pointer-events-none" : "opacity-100"
+                }`}
+            >
+                <button
+                    onClick={handleCopyInviteLink}
+                    className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg font-medium hover: bg-indigo-700 transition-colors shadow-lg"
                 >
-                    <VideoGrid
-                        participants={participants}
-                        localStream={localStream}
-                        localScreenStream={null}
-                        isScreenSharing={isScreenSharing}
-                        isMuted={isMuted}
-                        isVideoOn={isVideoOn}
-                    />
-                </div>
+                    {copied ? (
+                        <>
+                            <Check className="w-4 h-4" />
+                            Copied!
+                        </>
+                    ) : (
+                        <>
+                            <Share2 className="w-4 h-4" />
+                            Invite
+                        </>
+                    )}
+                </button>
 
-                {isChatOpen && (
-                    <ChatPanel
-                        messages={messages}
-                        onSendMessage={sendMessage}
-                        onClose={() => setIsChatOpen(false)}
+                {conference?.readable_id && (
+                    <div className="mt-2 px-4 py-2 bg-black bg-opacity-60 rounded-lg text-center">
+                        <p className="text-xs text-gray-400">Meeting ID</p>
+                        <p className="text-lg font-mono font-bold text-white tracking-widest">
+                            {isValidMeetingID(conference.readable_id)
+                                ? conference.readable_id
+                                : "NonValidStr"}
+                        </p>
+                    </div>
+                )}
+            </div>
+
+            {/* Video Grid */}
+            <div className="flex-1 relative">
+                <VideoGrid
+                    participants={participants}
+                    localStream={localStream}
+                    localScreenStream={null}
+                    isScreenSharing={isScreenSharing}
+                    isMuted={isMuted}
+                    isVideoOn={isVideoOn}
+                />
+
+                {/* Chat Panel */}
+                <ChatPanel
+                    isOpen={isChatOpen}
+                    onClose={() => setIsChatOpen(false)}
+                    messages={messages}
+                    onSendMessage={sendMessage}
+                    myParticipantId="local"
+                />
+
+                {/* Device Selector Modal */}
+                {isSettingsOpen && (
+                    <DeviceSelector
+                        onSelectDevice={handleDeviceChange}
+                        onClose={() => setIsSettingsOpen(false)}
                     />
                 )}
             </div>
 
+            {/* Control Bar */}
             <ControlBar
                 isMuted={isMuted}
                 isVideoOn={isVideoOn}
                 isScreenSharing={isScreenSharing}
+                isConnected={isConnected}
                 onToggleMute={toggleMute}
                 onToggleVideo={toggleVideo}
                 onToggleScreenShare={toggleScreenShare}
                 onLeaveCall={handleLeaveCall}
                 onToggleChat={() => setIsChatOpen(!isChatOpen)}
                 onSettings={() => setIsSettingsOpen(true)}
-                isConnected={isConnected}
-                title={conferenceInfo?.name}
+                title={conference?.title || "Untitled Conference"}
                 duration={duration}
                 participantCount={participants.length + 1}
             />
